@@ -24,19 +24,19 @@ Point to it with `data.biosense_archive_path`:
 data.biosense_archive_path="$HOME/BIOSENSE Dropbox/BIOSENSE Team Folder/biosense_communication_interface/prod/archive"
 ```
 
-### Splits
+### Batches and Splits
 
-Splits are defined by explicit batch ID lists in `configs/data/split/`. Select a split via CLI:
+Specify which batches to use via `data.batches`:
 
 ```bash
-# Dev split (9 batches, fast iteration)
-python scripts/preprocess.py data/split=dev data.biosense_archive_path=/path/to/archive data.processed_data_dir=./data/processed
+# Dev subset
+python scripts/preprocess.py data.batches=[1,2,3,4,5,6,7,8,9] ...
 
-# Full split (all 349 batches, ~80/10/10)
-python scripts/preprocess.py data/split=full data.biosense_archive_path=/path/to/archive data.processed_data_dir=./data/processed
+# All batches
+python scripts/preprocess.py 'data.batches=[1,2,3,...,349]' ...
 ```
 
-To create a custom split, add a YAML file to `configs/data/split/` with `train_batches`, `val_batches`, and `test_batches` lists.
+Train/val/test splitting is controlled by ratios in the training config (`training.train_ratio`, `training.val_ratio`). The test set is the remainder. Defaults: 80/10/10.
 
 ### Preprocessing
 

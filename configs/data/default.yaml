@@ -1,10 +1,9 @@
-defaults:
-  - split: dev    # Select split via CLI: data/split=full
-  - _self_
-
 # Path to the BIOSENSE archive directory containing batch-NNNNNN/ subdirs.
 # Set via CLI: data.biosense_archive_path=/path/to/archive
 biosense_archive_path: null
+
+# Batch IDs to use. Override via CLI: data.batches=[1,2,3,4,5]
+batches: []
 
 # Where preprocessed data (shards, HDF5, etc.) is written.
 processed_data_dir: null
