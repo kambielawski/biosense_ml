@@ -11,12 +11,12 @@ from omegaconf import DictConfig
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
 
-from src.data.dataset import make_dataloader
-from src.models import build_model
-from src.training.metrics import MetricTracker
-from src.utils.checkpoint import load_checkpoint, manage_top_k_checkpoints, save_checkpoint
-from src.utils.distributed import cleanup_distributed, is_main_process, setup_distributed
-from src.utils.logging import finish_wandb, init_wandb, log_metrics
+from biosense_ml.data.dataset import make_dataloader
+from biosense_ml.models import build_model
+from biosense_ml.training.metrics import MetricTracker
+from biosense_ml.utils.checkpoint import load_checkpoint, manage_top_k_checkpoints, save_checkpoint
+from biosense_ml.utils.distributed import cleanup_distributed, is_main_process, setup_distributed
+from biosense_ml.utils.logging import finish_wandb, init_wandb, log_metrics
 
 logger = logging.getLogger(__name__)
 

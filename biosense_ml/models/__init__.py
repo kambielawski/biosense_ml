@@ -3,7 +3,7 @@
 import torch.nn as nn
 from omegaconf import DictConfig
 
-from src.models.baseline import BaselineModel
+from biosense_ml.models.baseline import BaselineModel
 
 MODEL_REGISTRY: dict[str, type[nn.Module]] = {
     "baseline": BaselineModel,

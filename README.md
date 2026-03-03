@@ -100,10 +100,10 @@ wandb ui
 
 ```
 configs/         Hydra YAML configs (model, data, training, slurm)
-src/data/        Dataset classes, preprocessing, WebDataset/HDF5 utilities
-src/models/      Model definitions and registry
-src/training/    Training loop, metrics, checkpointing
-src/utils/       wandb helpers, distributed training, checkpoint management
+biosense_ml/data/        Dataset classes, preprocessing, WebDataset/HDF5 utilities
+biosense_ml/models/      Model definitions and registry
+biosense_ml/training/    Training loop, metrics, checkpointing
+biosense_ml/utils/       wandb helpers, distributed training, checkpoint management
 scripts/         Entry points (preprocess, train, eval)
 slurm/           Example Slurm batch scripts
 tests/           Smoke tests
@@ -112,11 +112,11 @@ notebooks/       Data exploration notebooks
 
 ## Adding New Models
 
-1. Create `src/models/my_model.py` with a class that extends `nn.Module`.
+1. Create `biosense_ml/models/my_model.py` with a class that extends `nn.Module`.
 2. Add a config file `configs/model/my_model.yaml`.
-3. Register it in `src/models/__init__.py`:
+3. Register it in `biosense_ml/models/__init__.py`:
    ```python
-   from src.models.my_model import MyModel
+   from biosense_ml.models.my_model import MyModel
    MODEL_REGISTRY["my_model"] = MyModel
    ```
 4. Train with: `python scripts/train.py model=my_model`

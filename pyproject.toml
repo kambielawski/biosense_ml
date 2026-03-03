@@ -28,7 +28,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*"]
+include = ["biosense_ml*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

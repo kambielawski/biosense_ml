@@ -6,7 +6,7 @@ from omegaconf import DictConfig
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    from src.data.preprocessing import run_preprocessing
+    from biosense_ml.data.preprocessing import run_preprocessing
 
     run_preprocessing(cfg)
 

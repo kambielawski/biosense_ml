@@ -6,9 +6,9 @@ from pathlib import Path
 import torch
 from omegaconf import OmegaConf
 
-from src.models import build_model
-from src.training.metrics import MetricTracker
-from src.utils.checkpoint import load_checkpoint, save_checkpoint
+from biosense_ml.models import build_model
+from biosense_ml.training.metrics import MetricTracker
+from biosense_ml.utils.checkpoint import load_checkpoint, save_checkpoint
 
 
 def _make_test_cfg(**overrides):

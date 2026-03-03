@@ -19,11 +19,11 @@ test:
 	pytest tests/ -v
 
 lint:
-	ruff check src/ scripts/ tests/
-	ruff format --check src/ scripts/ tests/
+	ruff check biosense_ml/ scripts/ tests/
+	ruff format --check biosense_ml/ scripts/ tests/
 
 format:
-	ruff format src/ scripts/ tests/
+	ruff format biosense_ml/ scripts/ tests/
 
 clean:
 	rm -rf outputs/ multirun/ wandb/ .hydra/
