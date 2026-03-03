@@ -1,0 +1,29 @@
+"""Model registry and factory."""
+
+import torch.nn as nn
+from omegaconf import DictConfig
+
+from src.models.baseline import BaselineModel
+
+MODEL_REGISTRY: dict[str, type[nn.Module]] = {
+    "baseline": BaselineModel,
+}
+
+
+def build_model(cfg: DictConfig) -> nn.Module:
+    """Build a model from config.
+
+    Args:
+        cfg: Full Hydra config (uses cfg.model).
+
+    Returns:
+        Instantiated model.
+
+    Raises:
+        KeyError: If model name is not in the registry.
+    """
+    name = cfg.model.name
+    if name not in MODEL_REGISTRY:
+        available = ", ".join(MODEL_REGISTRY.keys())
+        raise KeyError(f"Unknown model '{name}'. Available: {available}")
+    return MODEL_REGISTRY[name](cfg.model)

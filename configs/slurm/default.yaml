@@ -1,0 +1,16 @@
+partition: gpu
+gpus_per_node: 1
+cpus_per_task: 8
+mem_gb: 64
+time_hours: 24
+
+hydra:
+  launcher:
+    _target_: hydra_plugins.hydra_submitit_launcher.submitit_launcher.SlurmLauncher
+    partition: ${slurm.partition}
+    gpus_per_node: ${slurm.gpus_per_node}
+    cpus_per_task: ${slurm.cpus_per_task}
+    mem_gb: ${slurm.mem_gb}
+    timeout_min: 1440
+    additional_parameters:
+      mail-type: END,FAIL

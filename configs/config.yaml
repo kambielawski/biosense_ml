@@ -1,0 +1,11 @@
+defaults:
+  - model: baseline
+  - data: default
+  - training: default
+  - slurm: default
+  - _self_
+
+# Global settings
+seed: 42
+project_name: biosense-ml
+output_dir: ${hydra:runtime.cwd}/outputs

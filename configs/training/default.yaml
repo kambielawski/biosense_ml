@@ -1,0 +1,30 @@
+epochs: 100
+
+optimizer:
+  name: adamw
+  lr: 1e-4
+  weight_decay: 1e-5
+  betas: [0.9, 0.999]
+
+scheduler:
+  name: cosine
+  warmup_epochs: 5
+  min_lr: 1e-6
+
+loss:
+  name: cross_entropy  # placeholder
+
+gradient_clip: 1.0
+mixed_precision: true  # torch AMP
+
+# Checkpointing
+checkpoint_every: 10   # epochs
+keep_top_k: 3          # keep best K checkpoints by val metric
+
+# Distributed
+distributed: false
+num_gpus: 1
+
+# Logging
+log_every: 50          # steps
+val_every: 1           # epochs

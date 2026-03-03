@@ -1,0 +1,14 @@
+name: baseline
+architecture: cnn
+hidden_dim: 128
+num_layers: 4
+dropout: 0.1
+
+# Input settings depend on preprocessing mode
+input_type: image  # "image" or "latent"
+input_channels: 3  # for image mode
+input_size: 224    # for image mode (pixels)
+latent_dim: 512    # for latent mode
+
+# Output
+num_classes: 10    # placeholder — set to actual number of classes
