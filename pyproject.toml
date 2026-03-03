@@ -26,6 +26,13 @@ dev = [
     "ipykernel>=6.0",
 ]
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.ruff]
 line-length = 100
 select = ["E", "F", "I", "W"]
