@@ -27,18 +27,34 @@ logger = logging.getLogger(__name__)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp"}
 
 
-def discover_raw_files(raw_dir: Path) -> list[Path]:
-    """Recursively find all image files in the raw data directory.
+def discover_raw_files(raw_dir: Path, batches: list[int] | None = None) -> list[Path]:
+    """Find all image files in the specified batch directories.
 
     Args:
-        raw_dir: Root directory to search.
+        raw_dir: Root archive directory containing batch-NNNNNN/ subdirs.
+        batches: List of batch IDs to include. If empty or None, scans all batches.
 
     Returns:
         Sorted list of image file paths.
     """
-    files = sorted(
-        p for p in raw_dir.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS and p.is_file()
-    )
+    if batches:
+        batch_dirs = []
+        for batch_id in sorted(batches):
+            batch_dir = raw_dir / f"batch-{batch_id:06d}"
+            if batch_dir.is_dir():
+                batch_dirs.append(batch_dir)
+            else:
+                logger.warning("Batch directory not found: %s", batch_dir)
+        files = sorted(
+            p
+            for d in batch_dirs
+            for p in d.rglob("*")
+            if p.suffix.lower() in IMAGE_EXTENSIONS and p.is_file()
+        )
+    else:
+        files = sorted(
+            p for p in raw_dir.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS and p.is_file()
+        )
     logger.info("Discovered %d image files in %s", len(files), raw_dir)
     return files
 
@@ -180,7 +196,8 @@ def run_preprocessing(cfg: DictConfig) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Discover and partition files
-    all_files = discover_raw_files(raw_dir)
+    batches = list(cfg.data.batches) if cfg.data.batches else None
+    all_files = discover_raw_files(raw_dir, batches=batches)
     files = partition_files(all_files)
 
     if not files:
