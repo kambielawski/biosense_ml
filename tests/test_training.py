@@ -46,7 +46,9 @@ def _make_test_cfg(**overrides):
             "keep_top_k": 2,
         },
     })
-    return OmegaConf.merge(cfg, OmegaConf.create(overrides))
+    for dotkey, value in overrides.items():
+        OmegaConf.update(cfg, dotkey, value)
+    return cfg
 
 
 def test_model_forward_image():
