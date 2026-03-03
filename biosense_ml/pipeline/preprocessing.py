@@ -283,7 +283,8 @@ def preprocess_resize(
     """
     target_size = cfg.data.preprocessing.target_size
     shard_size = cfg.data.shard_size
-    num_workers = cfg.data.num_workers
+    # Use Slurm-allocated CPUs if available, otherwise fall back to config
+    num_workers = int(os.environ.get("SLURM_CPUS_PER_TASK", cfg.data.num_workers))
     total_batches = len(batch_groups)
 
     logger.info(
