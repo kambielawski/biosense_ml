@@ -15,10 +15,23 @@ wandb login
 
 ## Data Pipeline
 
-### Archive Location
+### Archive Layout
 
-The raw dataset lives in the BIOSENSE archive — a directory of `batch-NNNNNN/` subdirectories.
-Point to it with `data.biosense_archive_path`:
+The raw dataset lives in the BIOSENSE archive — a directory of `batch-NNNNNN/` subdirectories. Each batch represents one continuous temporal sequence of the system being imaged.
+
+```
+archive/
+  batch-000001/
+    images/              Timestamped frames: {camera_uuid}-{YYYY-MM-DD}THH.MM.SS.jpg
+    commands/            Stimulus command JSONs (electrical, chemical, temperature, etc.)
+    status.json          Detailed event log for the batch
+  batch-000002/
+    ...
+```
+
+Each image filename encodes the camera UUID and capture timestamp (dots replace colons for filesystem compatibility). Command files record stimulus type, parameters, start/end times, and are used during preprocessing to annotate each frame with active stimuli.
+
+Point to the archive with `data.biosense_archive_path`:
 
 ```bash
 data.biosense_archive_path="$HOME/BIOSENSE Dropbox/BIOSENSE Team Folder/biosense_communication_interface/prod/archive"
