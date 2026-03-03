@@ -8,6 +8,8 @@ Supports two modes:
 import json
 import logging
 import os
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 import h5py
@@ -27,55 +29,157 @@ logger = logging.getLogger(__name__)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp"}
 
 
-def discover_raw_files(raw_dir: Path, batches: list[int] | None = None) -> list[Path]:
-    """Find all image files in the specified batch directories.
+def discover_batch_dirs(raw_dir: Path, batches: list[int] | None = None) -> list[tuple[int, Path]]:
+    """Find batch directories in the archive.
 
     Args:
         raw_dir: Root archive directory containing batch-NNNNNN/ subdirs.
-        batches: List of batch IDs to include. If empty or None, scans all batches.
+        batches: List of batch IDs to include. If empty or None, discovers all.
+
+    Returns:
+        Sorted list of (batch_id, batch_dir) tuples.
+    """
+    if batches:
+        result = []
+        for batch_id in sorted(batches):
+            batch_dir = raw_dir / f"batch-{batch_id:06d}"
+            if batch_dir.is_dir():
+                result.append((batch_id, batch_dir))
+            else:
+                logger.warning("Batch directory not found: %s", batch_dir)
+        return result
+
+    # Auto-discover all batch-NNNNNN/ directories
+    result = []
+    for d in sorted(raw_dir.iterdir()):
+        if d.is_dir() and d.name.startswith("batch-"):
+            try:
+                batch_id = int(d.name.split("-", 1)[1])
+                result.append((batch_id, d))
+            except ValueError:
+                logger.warning("Skipping non-numeric batch dir: %s", d)
+    logger.info("Discovered %d batch directories in %s", len(result), raw_dir)
+    return result
+
+
+def discover_batch_files(batch_dir: Path) -> list[Path]:
+    """Find all image files in a single batch directory, sorted for temporal order.
+
+    Args:
+        batch_dir: Path to a batch-NNNNNN/ directory.
 
     Returns:
         Sorted list of image file paths.
     """
-    if batches:
-        batch_dirs = []
-        for batch_id in sorted(batches):
-            batch_dir = raw_dir / f"batch-{batch_id:06d}"
-            if batch_dir.is_dir():
-                batch_dirs.append(batch_dir)
-            else:
-                logger.warning("Batch directory not found: %s", batch_dir)
-        files = sorted(
-            p
-            for d in batch_dirs
-            for p in d.rglob("*")
-            if p.suffix.lower() in IMAGE_EXTENSIONS and p.is_file()
-        )
-    else:
-        files = sorted(
-            p for p in raw_dir.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS and p.is_file()
-        )
-    logger.info("Discovered %d image files in %s", len(files), raw_dir)
-    return files
+    return sorted(
+        p for p in batch_dir.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS and p.is_file()
+    )
 
 
-def load_metadata(image_path: Path) -> dict:
-    """Load metadata associated with an image file.
+def parse_image_timestamp(image_path: Path) -> datetime:
+    """Extract timestamp from an image filename.
 
-    Stub implementation: looks for a .json sidecar file next to the image.
-    Override this function to match your actual dataset structure.
+    Expected format: {uuid}-{YYYY-MM-DD}T{HH.MM.SS}.jpg
+    The dots in the time portion replace colons for filesystem compatibility.
+    """
+    stem = image_path.stem
+    # Match the ISO-ish timestamp at the end: YYYY-MM-DDTHH.MM.SS
+    match = re.search(r"(\d{4}-\d{2}-\d{2}T\d{2}\.\d{2}\.\d{2})$", stem)
+    if not match:
+        raise ValueError(f"Cannot parse timestamp from filename: {image_path.name}")
+    ts_str = match.group(1).replace(".", ":")  # 20.55.31 -> 20:55:31
+    return datetime.fromisoformat(ts_str).replace(tzinfo=timezone.utc)
+
+
+def load_commands(batch_dir: Path) -> list[dict]:
+    """Load all command JSON files from a batch's commands/ directory.
 
     Args:
-        image_path: Path to the image file.
+        batch_dir: Path to a batch-NNNNNN/ directory.
 
     Returns:
-        Metadata dict. Returns empty dict if no sidecar exists.
+        List of parsed command dicts.
     """
-    sidecar = image_path.with_suffix(".json")
-    if sidecar.exists():
-        with open(sidecar) as f:
-            return json.load(f)
-    return {"filename": image_path.name}
+    commands_dir = batch_dir / "commands"
+    if not commands_dir.is_dir():
+        return []
+    commands = []
+    for f in sorted(commands_dir.glob("*.json")):
+        with open(f) as fh:
+            commands.append(json.load(fh))
+    return commands
+
+
+def _parse_command_time(time_str: str | None) -> datetime | None:
+    """Parse an ISO timestamp string from a command file."""
+    if time_str is None:
+        return None
+    return datetime.fromisoformat(time_str.replace("Z", "+00:00"))
+
+
+def annotate_stimulus(image_ts: datetime, commands: list[dict]) -> dict:
+    """Build stimulus annotations for a single frame based on command timing.
+
+    Rules:
+      - electrical: annotate if image_ts falls within [start_time, end_time].
+        Records current_ma, angle_degrees, frequency_hz from the first instruction.
+      - chemical: annotate all images after start_time with a positive flag.
+      - All other command types (vibration, temperature, camera) are ignored.
+      - time_since_electrical_stimulus_onset: seconds since the earliest electrical
+        command's start_time, or -1 if no electrical command exists in the batch.
+
+    Args:
+        image_ts: Timestamp of the image frame.
+        commands: List of command dicts from load_commands().
+
+    Returns:
+        Dict with stimulus annotations.
+    """
+    annotations: dict = {
+        "electrical": {},
+        "chemical": {},
+        "time_since_electrical_stimulus_onset": -1.0,
+    }
+
+    # Find earliest electrical start time for the onset field.
+    # -1 if no electrical command exists or frame is before stimulus onset.
+    electrical_starts = []
+    for cmd in commands:
+        if cmd.get("type") == "electrical":
+            start = _parse_command_time(cmd.get("start_time"))
+            if start:
+                electrical_starts.append(start)
+
+    if electrical_starts:
+        earliest_start = min(electrical_starts)
+        if image_ts >= earliest_start:
+            annotations["time_since_electrical_stimulus_onset"] = (
+                image_ts - earliest_start
+            ).total_seconds()
+
+    for cmd in commands:
+        cmd_type = cmd.get("type", "")
+        start = _parse_command_time(cmd.get("start_time"))
+        end = _parse_command_time(cmd.get("end_time"))
+        instructions = cmd.get("instructions", [])
+        inst = instructions[0] if instructions else {}
+
+        if cmd_type == "electrical":
+            if start and end and start <= image_ts <= end:
+                annotations["electrical"] = {
+                    "active": True,
+                    "current_ma": inst.get("current_ma", 0.0),
+                    "angle_degrees": inst.get("angle_degrees", 0.0),
+                    "frequency_hz": inst.get("frequency_hz", 0.0),
+                }
+
+        elif cmd_type == "chemical":
+            if start and image_ts >= start:
+                annotations["chemical"] = {
+                    "active": True,
+                }
+
+    return annotations
 
 
 def partition_files(files: list[Path]) -> list[Path]:
@@ -103,12 +207,19 @@ def partition_files(files: list[Path]) -> list[Path]:
     return partition
 
 
-def preprocess_resize(cfg: DictConfig, files: list[Path], output_dir: Path) -> DatasetManifest:
+def preprocess_resize(
+    cfg: DictConfig,
+    batch_groups: list[tuple[int, Path, list[Path]]],
+    output_dir: Path,
+) -> DatasetManifest:
     """Resize images and write to WebDataset tar shards.
+
+    Preserves temporal ordering within each batch and writes batch_id,
+    frame_index, timestamp, and stimulus annotations into every sample's metadata.
 
     Args:
         cfg: Full Hydra config.
-        files: List of image file paths to process.
+        batch_groups: List of (batch_id, batch_dir, sorted_file_list) tuples.
         output_dir: Directory to write tar shards to.
 
     Returns:
@@ -122,16 +233,30 @@ def preprocess_resize(cfg: DictConfig, files: list[Path], output_dir: Path) -> D
     ])
 
     with ShardWriter(output_dir, shard_size=shard_size) as writer:
-        for i, img_path in enumerate(tqdm(files, desc="Preprocessing (resize)")):
-            try:
-                image = Image.open(img_path).convert("RGB")
-                image = resize_transform(image)
-                metadata = load_metadata(img_path)
-                key = f"sample_{i:08d}"
-                writer.write(key=key, image=image, metadata=metadata)
-            except Exception:
-                logger.exception("Failed to process %s", img_path)
-                continue
+        for batch_id, batch_dir, files in batch_groups:
+            commands = load_commands(batch_dir)
+            batch_start_ts = parse_image_timestamp(files[0]) if files else None
+            for frame_idx, img_path in enumerate(tqdm(
+                files, desc=f"Batch {batch_id}", leave=False
+            )):
+                try:
+                    image = Image.open(img_path).convert("RGB")
+                    image = resize_transform(image)
+                    image_ts = parse_image_timestamp(img_path)
+                    stimulus = annotate_stimulus(image_ts, commands)
+                    metadata = {
+                        "filename": img_path.name,
+                        "batch_id": batch_id,
+                        "frame_index": frame_idx,
+                        "timestamp": image_ts.isoformat(),
+                        "time_since_batch_start": (image_ts - batch_start_ts).total_seconds(),
+                        "stimulus": stimulus,
+                    }
+                    key = f"b{batch_id:06d}_f{frame_idx:06d}"
+                    writer.write(key=key, image=image, metadata=metadata)
+                except Exception:
+                    logger.exception("Failed to process %s", img_path)
+                    continue
 
     manifest = DatasetManifest(
         config_hash=compute_config_hash(cfg),
@@ -145,13 +270,13 @@ def preprocess_resize(cfg: DictConfig, files: list[Path], output_dir: Path) -> D
 
 
 def preprocess_autoencoder(
-    cfg: DictConfig, files: list[Path], output_dir: Path
+    cfg: DictConfig, batch_groups: list[tuple[int, Path, list[Path]]], output_dir: Path
 ) -> DatasetManifest:
     """Encode images with a pretrained autoencoder and save latent vectors to HDF5.
 
     Args:
         cfg: Full Hydra config.
-        files: List of image file paths to encode.
+        batch_groups: List of (batch_id, sorted_file_list) tuples.
         output_dir: Directory to write HDF5 file to.
 
     Returns:
@@ -195,22 +320,37 @@ def run_preprocessing(cfg: DictConfig) -> None:
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Discover and partition files
-    batches = list(cfg.data.batches) if cfg.data.batches else None
-    all_files = discover_raw_files(raw_dir, batches=batches)
-    files = partition_files(all_files)
+    # Discover batches and their files
+    batch_ids = list(cfg.data.batches) if cfg.data.batches else None
+    batch_dirs = discover_batch_dirs(raw_dir, batches=batch_ids)
 
-    if not files:
+    if not batch_dirs:
+        logger.warning("No batch directories found.")
+        return
+
+    batch_groups = []
+    total_files = 0
+    for batch_id, batch_dir in batch_dirs:
+        files = discover_batch_files(batch_dir)
+        files = partition_files(files)
+        if files:
+            batch_groups.append((batch_id, batch_dir, files))
+            total_files += len(files)
+
+    if not batch_groups:
         logger.warning("No files to process.")
         return
 
     mode = cfg.data.preprocessing.mode
-    logger.info("Running preprocessing in '%s' mode on %d files", mode, len(files))
+    logger.info(
+        "Running preprocessing in '%s' mode: %d batches, %d files",
+        mode, len(batch_groups), total_files,
+    )
 
     if mode == "resize":
-        manifest = preprocess_resize(cfg, files, output_dir)
+        manifest = preprocess_resize(cfg, batch_groups, output_dir)
     elif mode == "autoencoder":
-        manifest = preprocess_autoencoder(cfg, files, output_dir)
+        manifest = preprocess_autoencoder(cfg, batch_groups, output_dir)
     else:
         raise ValueError(f"Unknown preprocessing mode: {mode}")
 
