@@ -1,3 +1,7 @@
+defaults:
+  - preprocessing: resize  # Select mode via CLI: data/preprocessing=autoencoder
+  - _self_
+
 # Path to the BIOSENSE archive directory containing batch-NNNNNN/ subdirs.
 # Set via CLI: data.biosense_archive_path=/path/to/archive
 biosense_archive_path: null
@@ -7,10 +11,6 @@ batches: []
 
 # Where preprocessed data (shards, HDF5, etc.) is written.
 processed_data_dir: null
-
-# Preprocessing mode
-preprocessing:
-  mode: resize  # "resize" or "autoencoder"
 
 # DataLoader settings
 format: webdataset
