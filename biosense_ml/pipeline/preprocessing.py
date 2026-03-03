@@ -293,6 +293,7 @@ def preprocess_resize(
     all_shard_paths: list[str] = []
     total_samples = 0
     completed = 0
+    wall_start = time.monotonic()
 
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = {
@@ -309,9 +310,16 @@ def preprocess_resize(
             all_shard_paths.extend(shard_paths)
             total_samples += n_samples
             completed += 1
+
+            wall_elapsed = time.monotonic() - wall_start
+            avg_per_batch = wall_elapsed / completed
+            remaining = (total_batches - completed) * avg_per_batch
+            eta_min, eta_sec = divmod(remaining, 60)
+
             logger.info(
-                "[%3d/%d] Batch %06d: %d samples (%.1fs)",
+                "[%3d/%d] Batch %06d: %d samples (%.1fs) | ETA %dm%02ds",
                 completed, total_batches, batch_id, n_samples, elapsed,
+                int(eta_min), int(eta_sec),
             )
 
     manifest = DatasetManifest(
