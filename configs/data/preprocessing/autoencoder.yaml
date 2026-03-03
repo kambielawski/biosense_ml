@@ -1,0 +1,4 @@
+mode: autoencoder
+checkpoint_path: null  # path to pretrained autoencoder
+latent_dim: 512
+batch_size: 128        # for encoding pass

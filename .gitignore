@@ -8,8 +8,8 @@ dist/
 build/
 *.egg
 
-# Data (never commit data)
-data/
+# Data (never commit data — only top-level data/ directory)
+/data/
 *.tar
 *.hdf5
 *.h5

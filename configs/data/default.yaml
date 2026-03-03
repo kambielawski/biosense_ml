@@ -1,0 +1,19 @@
+# Path configuration
+raw_data_dir: null       # Set via CLI, e.g., ~/BIOSENSE Dropbox/.../prod/archive
+processed_data_dir: null # Where preprocessed data is written
+dataset_split: prod      # dev, test, or prod
+
+# Preprocessing
+preprocessing:
+  mode: resize  # "resize" or "autoencoder"
+
+# Loading
+format: webdataset  # "webdataset" for images, "hdf5" for latents
+batch_size: 64
+num_workers: 8
+pin_memory: true
+prefetch_factor: 2
+
+# WebDataset-specific
+shard_size: 1000     # samples per tar shard
+shuffle_buffer: 5000
