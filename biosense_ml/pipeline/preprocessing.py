@@ -3,12 +3,16 @@
 Supports two modes:
   - resize: Downscale images and package into WebDataset tar shards.
   - autoencoder: Encode images into latent vectors and save as HDF5.
+
+Batches are processed in parallel using multiprocessing.
 """
 
 import json
 import logging
 import os
 import re
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,7 +22,6 @@ import torch
 from omegaconf import DictConfig
 from PIL import Image
 from torchvision import transforms
-from tqdm import tqdm
 
 from biosense_ml.pipeline.manifest import DatasetManifest, compute_config_hash
 from biosense_ml.pipeline.webdataset_utils import ShardWriter
@@ -207,15 +210,68 @@ def partition_files(files: list[Path]) -> list[Path]:
     return partition
 
 
+def _resize_one_batch(
+    batch_id: int,
+    batch_dir: Path,
+    files: list[Path],
+    output_dir: Path,
+    target_size: int,
+    shard_size: int,
+) -> tuple[int, int, list[str], float]:
+    """Process a single batch: resize images and write to shards.
+
+    Runs in a worker process. Each batch writes shards to its own subdirectory
+    to avoid filename collisions between parallel workers.
+
+    Returns:
+        (batch_id, num_samples, shard_paths, elapsed_seconds)
+    """
+    t0 = time.monotonic()
+    batch_output_dir = output_dir / f"batch-{batch_id:06d}"
+
+    resize_transform = transforms.Compose([
+        transforms.Resize((target_size, target_size)),
+    ])
+
+    commands = load_commands(batch_dir)
+    batch_start_ts = parse_image_timestamp(files[0]) if files else None
+
+    with ShardWriter(batch_output_dir, shard_size=shard_size) as writer:
+        for frame_idx, img_path in enumerate(files):
+            try:
+                image = Image.open(img_path).convert("RGB")
+                image = resize_transform(image)
+                image_ts = parse_image_timestamp(img_path)
+                stimulus = annotate_stimulus(image_ts, commands)
+                metadata = {
+                    "filename": img_path.name,
+                    "batch_id": batch_id,
+                    "frame_index": frame_idx,
+                    "timestamp": image_ts.isoformat(),
+                    "time_since_batch_start": (image_ts - batch_start_ts).total_seconds(),
+                    "stimulus": stimulus,
+                }
+                key = f"b{batch_id:06d}_f{frame_idx:06d}"
+                writer.write(key=key, image=image, metadata=metadata)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Failed to process %s", img_path
+                )
+                continue
+
+    elapsed = time.monotonic() - t0
+    return batch_id, writer.total_samples_written, writer.shard_paths, elapsed
+
+
 def preprocess_resize(
     cfg: DictConfig,
     batch_groups: list[tuple[int, Path, list[Path]]],
     output_dir: Path,
 ) -> DatasetManifest:
-    """Resize images and write to WebDataset tar shards.
+    """Resize images and write to WebDataset tar shards, parallelized by batch.
 
-    Preserves temporal ordering within each batch and writes batch_id,
-    frame_index, timestamp, and stimulus annotations into every sample's metadata.
+    Each batch is processed in a separate worker process. Results are logged
+    as batches complete.
 
     Args:
         cfg: Full Hydra config.
@@ -227,44 +283,44 @@ def preprocess_resize(
     """
     target_size = cfg.data.preprocessing.target_size
     shard_size = cfg.data.shard_size
+    num_workers = cfg.data.num_workers
+    total_batches = len(batch_groups)
 
-    resize_transform = transforms.Compose([
-        transforms.Resize((target_size, target_size)),
-    ])
+    logger.info(
+        "Preprocessing %d batches across %d workers", total_batches, num_workers
+    )
 
-    with ShardWriter(output_dir, shard_size=shard_size) as writer:
-        for batch_id, batch_dir, files in batch_groups:
-            commands = load_commands(batch_dir)
-            batch_start_ts = parse_image_timestamp(files[0]) if files else None
-            for frame_idx, img_path in enumerate(tqdm(
-                files, desc=f"Batch {batch_id}", leave=False
-            )):
-                try:
-                    image = Image.open(img_path).convert("RGB")
-                    image = resize_transform(image)
-                    image_ts = parse_image_timestamp(img_path)
-                    stimulus = annotate_stimulus(image_ts, commands)
-                    metadata = {
-                        "filename": img_path.name,
-                        "batch_id": batch_id,
-                        "frame_index": frame_idx,
-                        "timestamp": image_ts.isoformat(),
-                        "time_since_batch_start": (image_ts - batch_start_ts).total_seconds(),
-                        "stimulus": stimulus,
-                    }
-                    key = f"b{batch_id:06d}_f{frame_idx:06d}"
-                    writer.write(key=key, image=image, metadata=metadata)
-                except Exception:
-                    logger.exception("Failed to process %s", img_path)
-                    continue
+    all_shard_paths: list[str] = []
+    total_samples = 0
+    completed = 0
+
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        futures = {
+            executor.submit(
+                _resize_one_batch,
+                batch_id, batch_dir, files,
+                output_dir, target_size, shard_size,
+            ): batch_id
+            for batch_id, batch_dir, files in batch_groups
+        }
+
+        for future in as_completed(futures):
+            batch_id, n_samples, shard_paths, elapsed = future.result()
+            all_shard_paths.extend(shard_paths)
+            total_samples += n_samples
+            completed += 1
+            logger.info(
+                "[%3d/%d] Batch %06d: %d samples (%.1fs)",
+                completed, total_batches, batch_id, n_samples, elapsed,
+            )
 
     manifest = DatasetManifest(
         config_hash=compute_config_hash(cfg),
         source_dir=str(cfg.data.biosense_archive_path),
         processed_dir=str(output_dir),
-        num_samples=writer.total_samples_written,
+        num_samples=total_samples,
         format="webdataset",
-        shard_paths=writer.shard_paths,
+        shard_paths=sorted(all_shard_paths),
     )
     return manifest
 
@@ -347,6 +403,8 @@ def run_preprocessing(cfg: DictConfig) -> None:
         mode, len(batch_groups), total_files,
     )
 
+    t0 = time.monotonic()
+
     if mode == "resize":
         manifest = preprocess_resize(cfg, batch_groups, output_dir)
     elif mode == "autoencoder":
@@ -354,5 +412,10 @@ def run_preprocessing(cfg: DictConfig) -> None:
     else:
         raise ValueError(f"Unknown preprocessing mode: {mode}")
 
+    elapsed = time.monotonic() - t0
+    minutes, seconds = divmod(elapsed, 60)
     manifest.save(output_dir / "manifest.json")
-    logger.info("Preprocessing complete. %d samples written to %s", manifest.num_samples, output_dir)
+    logger.info(
+        "Preprocessing complete. %d samples in %dm%02ds",
+        manifest.num_samples, int(minutes), int(seconds),
+    )
