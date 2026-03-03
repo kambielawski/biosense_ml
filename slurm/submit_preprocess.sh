@@ -1,22 +1,31 @@
 #!/bin/bash
 #SBATCH --job-name=biosense-preprocess
-#SBATCH --partition=gpu
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=128G
-#SBATCH --time=12:00:00
-#SBATCH --array=0-15  # 16 parallel workers; adjust based on dataset size
-#SBATCH --output=logs/%j_%A_%a.out
-#SBATCH --error=logs/%j_%A_%a.err
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32G
+#SBATCH --time=6:00:00
+#SBATCH --output=logs/preprocess_%j.out
+#SBATCH --error=logs/preprocess_%j.err
 
-# Load modules (customize for your cluster)
-# module load cuda/12.x python/3.10
+# Partition is set automatically based on preprocessing mode:
+#   resize      -> general (CPU-only, no GPU needed)
+#   autoencoder -> gpu     (needs GPU for encoding)
+# Override via: sbatch --partition=<name> slurm/submit_preprocess.sh
+
+set -euo pipefail
 
 mkdir -p logs
 
 source .venv/bin/activate
 
-python scripts/preprocess.py \
-    data.raw_data_dir="/path/to/biosense/prod/archive" \
-    data.processed_data_dir="/scratch/$USER/processed" \
-    "$@"
+echo "=== Job Info ==="
+echo "Job ID:    $SLURM_JOB_ID"
+echo "Node:      $(hostname)"
+echo "Partition: $SLURM_JOB_PARTITION"
+echo "CPUs:      $SLURM_CPUS_PER_TASK"
+echo "Start:     $(date)"
+echo "Args:      $@"
+echo "================"
+
+python scripts/preprocess.py "$@"
+
+echo "=== Done: $(date) ==="
