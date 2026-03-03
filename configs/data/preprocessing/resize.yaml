@@ -1,5 +1,5 @@
 mode: resize
-target_size: 224
+target_size: 512
 interpolation: bilinear
 normalize: true
 mean: [0.485, 0.456, 0.406]   # ImageNet defaults; compute dataset stats to replace
