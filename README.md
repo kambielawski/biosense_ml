@@ -42,11 +42,17 @@ Train/val/test splitting is controlled by ratios in the training config (`traini
 
 Two preprocessing modes are available:
 
-**Resize mode** (default): Downscale images to 224x224 (configurable in `configs/data/preprocessing/resize.yaml`) and package into WebDataset tar shards.
+**Resize mode** (default): Downscale images and package into WebDataset tar shards. Target size and normalization settings are in [`configs/data/preprocessing/resize.yaml`](configs/data/preprocessing/resize.yaml).
 ```bash
 python scripts/preprocess.py \
     data.biosense_archive_path=/path/to/archive \
     data.processed_data_dir=./data/processed
+
+# Override target size from CLI:
+python scripts/preprocess.py \
+    data.biosense_archive_path=/path/to/archive \
+    data.processed_data_dir=./data/processed \
+    +data.preprocessing.target_size=128
 ```
 
 **Autoencoder mode**: Encode images into latent vectors and save as HDF5 (requires a pretrained autoencoder checkpoint).
