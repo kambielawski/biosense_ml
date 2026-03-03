@@ -18,8 +18,8 @@ from PIL import Image
 from torchvision import transforms
 from tqdm import tqdm
 
-from biosense_ml.data.manifest import DatasetManifest, compute_config_hash
-from biosense_ml.data.webdataset_utils import ShardWriter
+from biosense_ml.pipeline.manifest import DatasetManifest, compute_config_hash
+from biosense_ml.pipeline.webdataset_utils import ShardWriter
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ def preprocess_resize(cfg: DictConfig, files: list[Path], output_dir: Path) -> D
 
     manifest = DatasetManifest(
         config_hash=compute_config_hash(cfg),
-        source_dir=str(cfg.data.raw_data_dir),
+        source_dir=str(cfg.data.biosense_archive_path),
         processed_dir=str(output_dir),
         num_samples=writer.total_samples_written,
         format="webdataset",
@@ -171,7 +171,7 @@ def run_preprocessing(cfg: DictConfig) -> None:
     Args:
         cfg: Full Hydra config.
     """
-    raw_dir = Path(cfg.data.raw_data_dir)
+    raw_dir = Path(cfg.data.biosense_archive_path)
     output_dir = Path(cfg.data.processed_data_dir)
 
     if not raw_dir.exists():

@@ -10,7 +10,7 @@ import torch
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader, Dataset
 
-from biosense_ml.data.webdataset_utils import make_webdataset_loader
+from biosense_ml.pipeline.webdataset_utils import make_webdataset_loader
 
 logger = logging.getLogger(__name__)
 

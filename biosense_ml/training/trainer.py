@@ -11,7 +11,7 @@ from omegaconf import DictConfig
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
 
-from biosense_ml.data.dataset import make_dataloader
+from biosense_ml.pipeline.dataset import make_dataloader
 from biosense_ml.models import build_model
 from biosense_ml.training.metrics import MetricTracker
 from biosense_ml.utils.checkpoint import load_checkpoint, manage_top_k_checkpoints, save_checkpoint

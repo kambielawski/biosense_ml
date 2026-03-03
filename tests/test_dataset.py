@@ -10,9 +10,9 @@ import torch
 from omegaconf import OmegaConf
 from PIL import Image
 
-from biosense_ml.data.dataset import LatentDataset
-from biosense_ml.data.manifest import DatasetManifest, compute_config_hash
-from biosense_ml.data.webdataset_utils import ShardWriter
+from biosense_ml.pipeline.dataset import LatentDataset
+from biosense_ml.pipeline.manifest import DatasetManifest, compute_config_hash
+from biosense_ml.pipeline.webdataset_utils import ShardWriter
 
 
 def _make_fake_images(tmpdir: Path, n: int = 10) -> list[Path]:

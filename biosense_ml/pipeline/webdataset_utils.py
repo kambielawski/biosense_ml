@@ -11,7 +11,7 @@ import webdataset as wds
 from omegaconf import DictConfig
 from PIL import Image
 
-from biosense_ml.data.transforms import get_transforms
+from biosense_ml.pipeline.transforms import get_transforms
 
 logger = logging.getLogger(__name__)
 

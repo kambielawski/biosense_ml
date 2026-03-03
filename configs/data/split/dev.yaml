@@ -1,0 +1,4 @@
+# Dev split: small subset for fast iteration.
+train_batches: [1, 2, 3, 4, 5]
+val_batches: [6, 7]
+test_batches: [8, 9]

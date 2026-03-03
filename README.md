@@ -15,14 +15,28 @@ wandb login
 
 ## Data Pipeline
 
-### Raw Data Location
+### Archive Location
 
-The raw dataset lives in the Dropbox-synced folder:
-```
-~/BIOSENSE Dropbox/BIOSENSE Team Folder/biosense_communication_interface/prod/archive/
+The raw dataset lives in the BIOSENSE archive — a directory of `batch-NNNNNN/` subdirectories.
+Point to it with `data.biosense_archive_path`:
+
+```bash
+data.biosense_archive_path="$HOME/BIOSENSE Dropbox/BIOSENSE Team Folder/biosense_communication_interface/prod/archive"
 ```
 
-There are `dev`, `test`, and `prod` splits. The `prod/archive` folder contains the structured dataset.
+### Splits
+
+Splits are defined by explicit batch ID lists in `configs/data/split/`. Select a split via CLI:
+
+```bash
+# Dev split (9 batches, fast iteration)
+python scripts/preprocess.py data/split=dev data.biosense_archive_path=/path/to/archive data.processed_data_dir=./data/processed
+
+# Full split (all 349 batches, ~80/10/10)
+python scripts/preprocess.py data/split=full data.biosense_archive_path=/path/to/archive data.processed_data_dir=./data/processed
+```
+
+To create a custom split, add a YAML file to `configs/data/split/` with `train_batches`, `val_batches`, and `test_batches` lists.
 
 ### Preprocessing
 
@@ -31,7 +45,7 @@ Two preprocessing modes are available:
 **Resize mode** (default): Downscale images and package into WebDataset tar shards.
 ```bash
 python scripts/preprocess.py \
-    data.raw_data_dir="$HOME/BIOSENSE Dropbox/BIOSENSE Team Folder/biosense_communication_interface/prod/archive" \
+    data.biosense_archive_path=/path/to/archive \
     data.processed_data_dir=./data/processed \
     data.preprocessing.mode=resize \
     data.preprocessing.target_size=224
@@ -100,7 +114,7 @@ wandb ui
 
 ```
 configs/         Hydra YAML configs (model, data, training, slurm)
-biosense_ml/data/        Dataset classes, preprocessing, WebDataset/HDF5 utilities
+biosense_ml/pipeline/    Dataset classes, preprocessing, WebDataset/HDF5 utilities
 biosense_ml/models/      Model definitions and registry
 biosense_ml/training/    Training loop, metrics, checkpointing
 biosense_ml/utils/       wandb helpers, distributed training, checkpoint management
