@@ -103,6 +103,17 @@ def build_loader(
     """
     abs_paths = [str(project_root / p) for p in shard_paths]
 
+    # WebDataset distributes shards across workers; if num_workers > len(shards)
+    # some workers receive no shards and raise "No samples found in dataset".
+    # Clamp to avoid this, with 0 workers as the safe fallback.
+    safe_workers = min(num_workers, len(abs_paths))
+    if safe_workers != num_workers:
+        logger.warning(
+            "Clamping num_workers from %d to %d (fewer shards than workers)",
+            num_workers, safe_workers,
+        )
+    num_workers = safe_workers
+
     dataset = wds.WebDataset(abs_paths, shardshuffle=shuffle)
     if shuffle:
         dataset = dataset.shuffle(shuffle_buffer)

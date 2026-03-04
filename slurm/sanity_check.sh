@@ -22,7 +22,7 @@ python scripts/train_autoencoder.py \
     model=autoencoder \
     training.epochs=50 \
     data.batch_size=8 \
-    data.num_workers=2 \
+    data.num_workers=0 \
     data.shuffle_buffer=100 \
     +training.max_shards=1 \
     +experiment_tag=sanity-check \
