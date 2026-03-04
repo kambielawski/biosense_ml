@@ -2,5 +2,7 @@ defaults:
   - default
   - _self_
 
-# Tiny subset for fast iteration.
-batches: [105, 106, 107, 108, 109, 110]
+# Tiny subset for fast iteration (rung 2 of experiment ladder).
+# Use for all development work before scaling to full data.
+batches: [305, 318, 328, 338, 347]
+shuffle_buffer: 500   # reduce from 5000 to avoid 15GB memory pressure at epoch start
