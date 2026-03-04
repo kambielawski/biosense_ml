@@ -1,0 +1,3 @@
+name: autoencoder
+latent_channels: 512
+input_size: 512    # used by get_transforms
