@@ -217,11 +217,23 @@ def main(cfg: DictConfig) -> None:
 
     logger.info("Total shards: %d", len(all_shards))
 
-    # Deterministic 90/10 train/val split on shards
+    # Deterministic 90/10 train/val split on shards.
+    # Guard: with very few shards (e.g. max_shards=1), floor(n*0.9) can be 0,
+    # leaving train empty.  In that case use all shards for both splits so that
+    # sanity-check and tiny-dataset runs always have a non-empty train loader.
     random.shuffle(all_shards)
     split_idx = int(len(all_shards) * 0.9)
-    train_shards = all_shards[:split_idx]
-    val_shards = all_shards[split_idx:]
+    if split_idx == 0:
+        logger.warning(
+            "split_idx=0 with %d total shards — using all shards for both "
+            "train and val (overfitting mode intended for sanity-check runs)",
+            len(all_shards),
+        )
+        train_shards = all_shards
+        val_shards = all_shards
+    else:
+        train_shards = all_shards[:split_idx]
+        val_shards = all_shards[split_idx:]
     logger.info("Train shards: %d  Val shards: %d", len(train_shards), len(val_shards))
 
     # ---- transforms ----
