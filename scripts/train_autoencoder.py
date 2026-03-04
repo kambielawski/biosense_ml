@@ -56,17 +56,23 @@ def make_decode_fn(transform):
     WebDataset's .decode("pil") already converts the JPEG bytes to a PIL Image
     and stores it under the "jpg" key (no leading dot — the dot-prefix
     convention is for raw/undecoded samples only). This function picks up that
-    PIL image, applies the torchvision transform, and returns the tensor.
+    PIL image, applies the torchvision transform, and returns a dict so that
+    wds.batched() can properly stack the tensors across samples.
+
+    Note: when .map() returns a plain tensor (not a dict), wds 1.0.x's
+    .batched() wraps items in a dict with integer keys rather than stacking
+    them. Returning {"image": tensor} ensures .batched() produces
+    {"image": (B, C, H, W)} which can be indexed cleanly in the training loop.
 
     Args:
         transform: A torchvision Compose transform (output of get_transforms).
 
     Returns:
-        Callable that maps a wds sample dict to a float32 image tensor.
+        Callable that maps a wds sample dict to {"image": float32 tensor}.
     """
-    def decode_fn(sample: dict) -> torch.Tensor:
+    def decode_fn(sample: dict) -> dict:
         img = sample["jpg"]           # PIL Image (already decoded by wds)
-        return transform(img)         # -> (C, H, W) float tensor
+        return {"image": transform(img)}   # -> {"image": (C, H, W) float tensor}
     return decode_fn
 
 
@@ -91,7 +97,8 @@ def build_loader(
         shuffle_buffer: Size of the WebDataset shuffle buffer (used when shuffle=True).
 
     Returns:
-        A DataLoader yielding (image_tensor,) batches of shape (B, C, H, W).
+        A DataLoader yielding {"image": tensor} dicts where the tensor has
+        shape (B, C, H, W).
     """
     abs_paths = [str(project_root / p) for p in shard_paths]
 
@@ -149,8 +156,8 @@ def run_epoch(
     ctx = torch.enable_grad() if train else torch.no_grad()
     with ctx:
         for batch in loader:
-            # batch is a tensor of shape (B, C, H, W) from wds .batched()
-            images = batch.to(device, non_blocking=True)
+            # batch is a dict {"image": (B, C, H, W)} from wds .batched()
+            images = batch["image"].to(device, non_blocking=True)
 
             with autocast(enabled=use_amp):
                 reconstruction, _ = model(images)
