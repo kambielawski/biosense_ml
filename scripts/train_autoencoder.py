@@ -54,8 +54,9 @@ def make_decode_fn(transform):
     """Return a sample-decode function that applies *transform* to the PIL image.
 
     WebDataset's .decode("pil") already converts the JPEG bytes to a PIL Image
-    and stores it under the ".jpg" key. This function picks up that PIL image,
-    applies the torchvision transform, and returns the tensor.
+    and stores it under the "jpg" key (no leading dot — the dot-prefix
+    convention is for raw/undecoded samples only). This function picks up that
+    PIL image, applies the torchvision transform, and returns the tensor.
 
     Args:
         transform: A torchvision Compose transform (output of get_transforms).
@@ -64,7 +65,7 @@ def make_decode_fn(transform):
         Callable that maps a wds sample dict to a float32 image tensor.
     """
     def decode_fn(sample: dict) -> torch.Tensor:
-        img = sample[".jpg"]          # PIL Image (already decoded by wds)
+        img = sample["jpg"]           # PIL Image (already decoded by wds)
         return transform(img)         # -> (C, H, W) float tensor
     return decode_fn
 
