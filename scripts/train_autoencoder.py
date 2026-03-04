@@ -10,6 +10,7 @@ Usage:
 import json
 import logging
 import random
+import time
 from pathlib import Path
 
 import hydra
@@ -260,7 +261,11 @@ def main(cfg: DictConfig) -> None:
 
     # ---- training loop ----
     epochs: int = cfg.training.epochs
+    epoch_durations: list[float] = []
+
     for epoch in range(1, epochs + 1):
+        epoch_start = time.time()
+
         # Train
         train_loss = run_epoch(
             model, train_loader, optimizer, scaler, device, use_amp, train=True
@@ -273,14 +278,29 @@ def main(cfg: DictConfig) -> None:
             model, val_loader, None, None, device, use_amp, train=False
         )
 
+        epoch_duration = time.time() - epoch_start
+        epoch_durations.append(epoch_duration)
+        avg_epoch_s = sum(epoch_durations) / len(epoch_durations)
+        remaining_h = avg_epoch_s * (epochs - epoch) / 3600
+        total_h = avg_epoch_s * epochs / 3600
+
         # Log
         wandb.log(
-            {"train/loss": train_loss, "val/loss": val_loss, "lr": current_lr},
+            {
+                "train/loss": train_loss,
+                "val/loss": val_loss,
+                "lr": current_lr,
+                "perf/epoch_time_min": epoch_duration / 60,
+                "perf/estimated_total_h": total_h,
+                "perf/estimated_remaining_h": remaining_h,
+            },
             step=epoch,
         )
         logger.info(
-            "Epoch %d/%d  train_loss=%.6f  val_loss=%.6f  lr=%.2e",
+            "Epoch %d/%d  train_loss=%.6f  val_loss=%.6f  lr=%.2e"
+            "  epoch_time=%.1fmin  remaining=%.1fh",
             epoch, epochs, train_loss, val_loss, current_lr,
+            epoch_duration / 60, remaining_h,
         )
 
         # Checkpoint every N epochs or when val improves
