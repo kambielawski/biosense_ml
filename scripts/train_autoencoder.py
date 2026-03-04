@@ -206,6 +206,15 @@ def main(cfg: DictConfig) -> None:
     manifest_path = project_root / "data" / "processed" / "manifest.json"
     logger.info("Loading manifest from %s", manifest_path)
     all_shards = load_shard_paths(manifest_path)
+    logger.info("Total shards in manifest: %d", len(all_shards))
+
+    # Optional shard cap for fast experiments (sanity-check, dev runs).
+    # Pass via CLI: +training.max_shards=1  (or any integer N)
+    max_shards = cfg.training.get("max_shards", None)
+    if max_shards is not None:
+        all_shards = all_shards[:int(max_shards)]
+        logger.info("max_shards=%d applied — using %d shards", max_shards, len(all_shards))
+
     logger.info("Total shards: %d", len(all_shards))
 
     # Deterministic 90/10 train/val split on shards

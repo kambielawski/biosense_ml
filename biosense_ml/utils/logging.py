@@ -18,11 +18,15 @@ def init_wandb(cfg: DictConfig) -> wandb.sdk.wandb_run.Run:
     Returns:
         The wandb Run object.
     """
+    base_tags = [cfg.model.name, cfg.data.preprocessing.mode]
+    extra_tag = cfg.get("experiment_tag", None)
+    if extra_tag:
+        base_tags.append(str(extra_tag))
     run = wandb.init(
         project=cfg.project_name,
         config=OmegaConf.to_container(cfg, resolve=True),
         name=f"{cfg.model.name}_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}",
-        tags=[cfg.model.name, cfg.data.preprocessing.mode],
+        tags=base_tags,
     )
     logger.info("Initialized wandb run: %s", run.name)
     return run
