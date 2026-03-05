@@ -1,3 +1,4 @@
 name: autoencoder
 latent_channels: 512
+num_encoder_blocks: 5  # controls spatial bottleneck: 512 / (2^N) per side
 input_size: 512    # used by get_transforms
