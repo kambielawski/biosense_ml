@@ -10,7 +10,8 @@ class ConvAutoencoder(nn.Module):
 
     Encoder: 5 stride-2 conv blocks, channels 3->32->64->128->256->512.
     Decoder: 5 stride-2 transposed conv blocks, channels mirror encoder;
-             final activation is Sigmoid so output is in [0, 1].
+             no final activation — output is unbounded to match ImageNet-normalized
+             input range (approximately [-2.1, 2.6]).
     """
 
     def __init__(self, cfg: DictConfig) -> None:
@@ -75,7 +76,7 @@ class ConvAutoencoder(nn.Module):
                         bias=False,
                     ),
                     nn.BatchNorm2d(dec_channels[i + 1]),
-                    nn.Sigmoid() if is_last else nn.ReLU(inplace=True),
+                    nn.Identity() if is_last else nn.ReLU(inplace=True),
                 )
             )
         self.decoder = nn.Sequential(*decoder_blocks)
@@ -84,11 +85,12 @@ class ConvAutoencoder(nn.Module):
         """Forward pass through encoder then decoder.
 
         Args:
-            x: Input images of shape (B, 3, 512, 512), values in [0, 1].
+            x: Input images of shape (B, 3, 512, 512), ImageNet-normalized.
 
         Returns:
             Tuple of:
-                reconstruction: Reconstructed images (B, 3, 512, 512) in [0, 1].
+                reconstruction: Reconstructed images (B, 3, 512, 512), unbounded,
+                    same scale as input (ImageNet-normalized).
                 bottleneck: Encoder output (B, latent_channels, 16, 16).
         """
         bottleneck = self.encoder(x)
