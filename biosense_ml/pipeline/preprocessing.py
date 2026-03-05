@@ -233,6 +233,11 @@ def _resize_one_batch(
         transforms.Resize((target_size, target_size)),
     ])
 
+    # Raw images are 9152x6944 (wider than tall). Crop to a 6944x6944 square
+    # by removing 1358px from the left edge and 850px from the right edge.
+    # PIL crop box: (left, upper, right, lower)
+    CROP_BOX = (1358, 0, 8302, 6944)  # 8302 = 9152 - 850
+
     commands = load_commands(batch_dir)
     batch_start_ts = parse_image_timestamp(files[0]) if files else None
 
@@ -240,6 +245,7 @@ def _resize_one_batch(
         for frame_idx, img_path in enumerate(files):
             try:
                 image = Image.open(img_path).convert("RGB")
+                image = image.crop(CROP_BOX)
                 image = resize_transform(image)
                 image_ts = parse_image_timestamp(img_path)
                 stimulus = annotate_stimulus(image_ts, commands)
