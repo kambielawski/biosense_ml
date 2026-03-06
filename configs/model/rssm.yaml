@@ -1,0 +1,17 @@
+name: rssm
+
+# AE bottleneck size (flattened). Set based on autoencoder variant used.
+# 16x16x32 = 8192, 16x16x512 = 131072
+ae_latent_dim: 8192
+
+# RSSM dimensions
+h_dim: 512          # GRU deterministic state
+z_dim: 256          # stochastic latent
+rssm_dim: 512       # projected latent space
+action_dim: 3       # intervention encoding dimension
+
+# Projector MLP
+projector_hidden: 512
+
+# Gaussian head minimum std (prevents collapse)
+min_std: 0.1

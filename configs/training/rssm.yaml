@@ -1,0 +1,53 @@
+# RSSM training configuration
+
+epochs: 100
+seq_len: 48          # subsequence length for training (frames)
+
+optimizer:
+  name: adamw
+  lr: 1e-4
+  weight_decay: 1e-5
+  betas: [0.9, 0.999]
+
+scheduler:
+  name: cosine
+  warmup_epochs: 5
+  min_lr: 1e-6
+
+# Loss weights
+loss:
+  name: rssm           # custom loss, not used by generic trainer
+  beta_kl: 1.0         # KL loss weight
+  recon_weight: 1.0    # reconstruction loss weight
+
+# KL balancing (DreamerV3 style)
+# alpha=0.8 means 80% pushes prior toward posterior, 20% posterior toward prior
+kl_balance_alpha: 0.8
+free_bits: 1.0         # per-dimension KL floor (nats)
+
+# Noise injection
+noise_std_init: 0.1    # initial noise std on projected latents
+noise_std_final: 0.01  # final noise std
+noise_anneal_fraction: 0.5  # anneal over first half of training
+
+# Gradient clipping
+gradient_clip: 100.0
+
+# Mixed precision
+mixed_precision: true
+
+# Checkpointing
+checkpoint_every: 10
+keep_top_k: 3
+
+# Distributed (not used for now)
+distributed: false
+num_gpus: 1
+
+# Logging
+log_every: 50
+val_every: 1
+
+# Data split
+train_ratio: 0.9
+val_ratio: 0.1
