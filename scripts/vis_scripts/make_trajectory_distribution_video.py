@@ -106,23 +106,30 @@ def tensor_to_bgr_uint8(t):
 def extract_centroid(frame_bgr):
     """Extract the largest organoid centroid from a 512x512 BGR frame.
 
+    Uses multiple strategies to handle both raw and AE-decoded images:
+    1. Otsu thresholding on blurred grayscale (robust to varying contrast)
+    2. Fallback to center-of-mass of darkest 10% of pixels
+
     Returns (cx, cy) or None if no organoid detected.
     """
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-    mask = cv2.adaptiveThreshold(
-        gray, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV,
-        BLOCK_SIZE, C_VALUE,
-    )
-    # Remove isolated pixels
-    kernel = np.ones((3, 3), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-    # Circular mask
-    h, w = mask.shape
-    circular = np.zeros_like(mask)
+    h, w = gray.shape
+
+    # Apply circular mask to ignore edges
+    circular = np.zeros_like(gray)
     cv2.circle(circular, (w // 2, h // 2), MASK_RADIUS, 255, -1)
+    gray_masked = cv2.bitwise_and(gray, circular)
+
+    # Strategy 1: Otsu thresholding on blurred image
+    blurred = cv2.GaussianBlur(gray_masked, (15, 15), 0)
+    _, mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     mask = cv2.bitwise_and(mask, circular)
+
+    # Clean up small noise
+    kernel = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
     # Find contours
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     best_centroid = None
@@ -136,7 +143,21 @@ def extract_centroid(frame_bgr):
                 cy = int(M["m01"] / M["m00"])
                 best_centroid = (cx, cy)
                 best_area = area
-    return best_centroid
+
+    if best_centroid is not None:
+        return best_centroid
+
+    # Strategy 2: center of mass of darkest pixels within circular mask
+    # This works even with blurry/low-contrast AE reconstructions
+    roi_pixels = gray_masked[circular > 0]
+    if len(roi_pixels) == 0:
+        return None
+    threshold_val = np.percentile(roi_pixels[roi_pixels > 0], 10)
+    dark_mask = (gray_masked > 0) & (gray_masked < threshold_val)
+    if dark_mask.sum() < 10:
+        return None
+    ys, xs = np.where(dark_mask)
+    return (int(xs.mean()), int(ys.mean()))
 
 
 def generate_color_palette(n):
