@@ -5,11 +5,13 @@ from omegaconf import DictConfig
 
 from biosense_ml.models.autoencoder import ConvAutoencoder
 from biosense_ml.models.baseline import BaselineModel
+from biosense_ml.models.conv_rssm import ConvRSSM
 from biosense_ml.models.rssm import RSSM
 
 MODEL_REGISTRY: dict[str, type[nn.Module]] = {
     "autoencoder": ConvAutoencoder,
     "baseline": BaselineModel,
+    "conv_rssm": ConvRSSM,
     "rssm": RSSM,
 }
 

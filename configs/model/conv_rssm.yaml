@@ -1,0 +1,14 @@
+name: conv_rssm
+
+# AE bottleneck spatial structure
+ae_latent_channels: 32   # channels in AE bottleneck
+spatial_size: 16          # spatial resolution of AE bottleneck
+
+# ConvRSSM dimensions
+h_channels: 64           # ConvGRU deterministic state channels
+z_channels: 16           # per-pixel stochastic variable channels
+action_channels: 16      # action embedding channels
+action_dim: 3            # raw action vector dimension
+
+# Gaussian head minimum std
+min_std: 0.1
