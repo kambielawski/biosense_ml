@@ -1,0 +1,4 @@
+name: autoencoder
+latent_channels: 8
+num_encoder_blocks: 4
+input_size: 512
