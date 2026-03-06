@@ -95,16 +95,29 @@ def parse_args() -> argparse.Namespace:
         default=default_device,
         help="Torch device to run inference on.",
     )
+    parser.add_argument(
+        "--num_encoder_blocks",
+        default=5,
+        type=int,
+        help="Number of stride-2 encoder blocks (controls spatial bottleneck size).",
+    )
+    parser.add_argument(
+        "--latent_channels",
+        default=512,
+        type=int,
+        help="Channel depth at the bottleneck.",
+    )
     return parser.parse_args()
 
 
-def _minimal_cfg() -> OmegaConf:
+def _minimal_cfg(num_encoder_blocks: int = 5, latent_channels: int = 512) -> OmegaConf:
     """Build the minimal OmegaConf DictConfig that get_transforms and ConvAutoencoder need."""
     return OmegaConf.create(
         {
             "model": {
                 "input_size": 512,
-                "latent_channels": 512,
+                "latent_channels": latent_channels,
+                "num_encoder_blocks": num_encoder_blocks,
             },
             "data": {
                 "preprocessing": {
@@ -116,17 +129,24 @@ def _minimal_cfg() -> OmegaConf:
     )
 
 
-def load_model(checkpoint_path: Path, device: torch.device) -> ConvAutoencoder:
+def load_model(
+    checkpoint_path: Path,
+    device: torch.device,
+    num_encoder_blocks: int = 5,
+    latent_channels: int = 512,
+) -> ConvAutoencoder:
     """Instantiate ConvAutoencoder and load weights from checkpoint.
 
     Args:
         checkpoint_path: Path to the .pt checkpoint file.
         device: Torch device to move the model onto.
+        num_encoder_blocks: Number of stride-2 encoder blocks.
+        latent_channels: Channel depth at bottleneck.
 
     Returns:
         Model in eval mode on the requested device.
     """
-    cfg = _minimal_cfg()
+    cfg = _minimal_cfg(num_encoder_blocks=num_encoder_blocks, latent_channels=latent_channels)
     model = ConvAutoencoder(cfg.model)
     load_checkpoint(checkpoint_path, model)
     model.to(device)
@@ -308,12 +328,20 @@ def main() -> None:
     # Load model
     # ------------------------------------------------------------------
     print(f"Loading checkpoint: {args.checkpoint}")
-    model = load_model(args.checkpoint, device)
+    model = load_model(
+        args.checkpoint,
+        device,
+        num_encoder_blocks=args.num_encoder_blocks,
+        latent_channels=args.latent_channels,
+    )
 
     # ------------------------------------------------------------------
     # Load and transform frames from shard
     # ------------------------------------------------------------------
-    cfg = _minimal_cfg()
+    cfg = _minimal_cfg(
+        num_encoder_blocks=args.num_encoder_blocks,
+        latent_channels=args.latent_channels,
+    )
     transform = get_transforms(cfg, split="val")
     print(f"Loading frames from shard: {args.shard}")
     frames = load_frames_from_shard(
