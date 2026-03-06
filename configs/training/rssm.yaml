@@ -25,6 +25,11 @@ loss:
 kl_balance_alpha: 0.8
 free_bits: 1.0         # per-dimension KL floor (nats)
 
+# Temporal difference weighting
+# w = (variance / mean_variance) ^ alpha applied to recon loss per-dim
+# 0.0 = disabled, 1.0 = linear, 2.0 = quadratic emphasis on high-variance dims
+temporal_weight_alpha: 0.0
+
 # Noise injection
 noise_std_init: 0.1    # initial noise std on projected latents
 noise_std_final: 0.01  # final noise std

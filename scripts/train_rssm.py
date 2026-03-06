@@ -129,6 +129,7 @@ def compute_rssm_loss(
     beta_kl: float = 1.0,
     kl_balance_alpha: float = 0.8,
     free_bits: float = 1.0,
+    temporal_weights: torch.Tensor | None = None,
 ) -> dict[str, torch.Tensor]:
     """Compute RSSM loss with reconstruction, KL balancing, and free bits.
 
@@ -138,6 +139,7 @@ def compute_rssm_loss(
         beta_kl: Weight for KL loss.
         kl_balance_alpha: KL balancing coefficient (0.8 = push prior toward posterior).
         free_bits: Per-dimension KL floor in nats.
+        temporal_weights: Per-dimension recon weights, shape (ae_latent_dim,).
 
     Returns:
         Dict with loss, recon_loss, kl_loss, kl_dyn, kl_rep (all scalar tensors).
@@ -154,8 +156,10 @@ def compute_rssm_loss(
     # Expand mask for broadcasting: (B, T) -> (B, T, 1)
     mask_3d = mask.unsqueeze(-1)
 
-    # --- Reconstruction loss: MSE on projected latents ---
+    # --- Reconstruction loss: (optionally weighted) MSE on AE latents ---
     recon_sq = (obs_pred - obs_target) ** 2  # (B, T, ae_latent_dim)
+    if temporal_weights is not None:
+        recon_sq = recon_sq * temporal_weights  # broadcast (ae_latent_dim,)
     recon_loss = (recon_sq * mask_3d).sum() / mask.sum()
 
     # --- KL loss with balancing (DreamerV3 Eq. 3) ---
@@ -210,6 +214,7 @@ def run_epoch(
     train: bool,
     cfg: DictConfig,
     noise_std: float = 0.0,
+    temporal_weights: torch.Tensor | None = None,
 ) -> dict[str, float]:
     """Run one epoch of RSSM training or validation.
 
@@ -249,6 +254,7 @@ def run_epoch(
                     beta_kl=cfg.training.loss.beta_kl,
                     kl_balance_alpha=cfg.training.kl_balance_alpha,
                     free_bits=cfg.training.free_bits,
+                    temporal_weights=temporal_weights,
                 )
                 loss = losses["loss"]
 
@@ -381,6 +387,28 @@ def main(cfg: DictConfig) -> None:
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     best_val_loss = float("inf")
 
+    # Temporal difference weighting
+    tw_alpha = cfg.training.get("temporal_weight_alpha", 0.0)
+    temporal_weights = None
+    if tw_alpha > 0:
+        with h5py.File(h5_path, "r") as f:
+            if "temporal_variance" not in f:
+                raise ValueError(
+                    "temporal_variance not found in HDF5. Run scripts/compute_temporal_variance.py first."
+                )
+            tv = np.array(f["temporal_variance"], dtype=np.float32)
+        mean_var = tv.mean()
+        if mean_var > 0:
+            weights = (tv / mean_var) ** tw_alpha
+        else:
+            weights = np.ones_like(tv)
+        temporal_weights = torch.from_numpy(weights).to(device)
+        logger.info(
+            "Temporal weighting: alpha=%.2f, weight range=[%.4f, %.4f], mean=%.4f",
+            tw_alpha, temporal_weights.min().item(), temporal_weights.max().item(),
+            temporal_weights.mean().item(),
+        )
+
     # W&B
     run = init_wandb(cfg)
 
@@ -407,6 +435,7 @@ def main(cfg: DictConfig) -> None:
         train_metrics = run_epoch(
             model, train_loader, optimizer, scaler, device, use_amp,
             train=True, cfg=cfg, noise_std=noise_std,
+            temporal_weights=temporal_weights,
         )
         scheduler.step()
         current_lr = scheduler.get_last_lr()[0]
@@ -415,6 +444,7 @@ def main(cfg: DictConfig) -> None:
         val_metrics = run_epoch(
             model, val_loader, None, None, device, use_amp,
             train=False, cfg=cfg, noise_std=0.0,
+            temporal_weights=temporal_weights,
         )
 
         epoch_duration = time.time() - epoch_start
