@@ -284,7 +284,8 @@ def main(cfg: DictConfig) -> None:
     scaler = GradScaler() if use_amp else None
 
     # ---- checkpointing ----
-    ckpt_dir = project_root / "outputs" / "autoencoder" / "checkpoints"
+    ckpt_subdir = cfg.training.get("checkpoint_dir", "outputs/autoencoder/checkpoints")
+    ckpt_dir = project_root / ckpt_subdir
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     best_val_loss = float("inf")
 

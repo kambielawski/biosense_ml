@@ -144,8 +144,8 @@ def compute_rssm_loss(
     """
     from biosense_ml.models.rssm import RSSM
 
-    obs_pred = outputs["obs_pred"]       # (B, T, rssm_dim)
-    obs_target = outputs["obs_target"]   # (B, T, rssm_dim)
+    obs_pred = outputs["obs_pred"]       # (B, T, ae_latent_dim)
+    obs_target = outputs["obs_target"]   # (B, T, ae_latent_dim)
     post_mu = outputs["post_mu"]         # (B, T, z_dim)
     post_sigma = outputs["post_sigma"]
     prior_mu = outputs["prior_mu"]
@@ -155,7 +155,7 @@ def compute_rssm_loss(
     mask_3d = mask.unsqueeze(-1)
 
     # --- Reconstruction loss: MSE on projected latents ---
-    recon_sq = (obs_pred - obs_target) ** 2  # (B, T, rssm_dim)
+    recon_sq = (obs_pred - obs_target) ** 2  # (B, T, ae_latent_dim)
     recon_loss = (recon_sq * mask_3d).sum() / mask.sum()
 
     # --- KL loss with balancing (DreamerV3 Eq. 3) ---

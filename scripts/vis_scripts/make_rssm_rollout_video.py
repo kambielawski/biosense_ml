@@ -181,8 +181,6 @@ def main():
     # Re-run context to get h_t at the end
     B = 1
     h_t, z_t = rssm_model.initial_state(B, device)
-    projected_ctx = rssm_model.projector_encode(context_latents.reshape(-1, context_latents.shape[-1]))
-    projected_ctx = projected_ctx.reshape(1, args.context_len, -1)
 
     for t in range(args.context_len):
         if t == 0:
@@ -190,7 +188,7 @@ def main():
         else:
             a_prev = context_actions[:, t - 1]
 
-        x_t = projected_ctx[:, t]
+        x_t = context_latents[:, t]
         step = rssm_model.forward_single_step(h_t, z_t, a_prev, x_t)
         h_t = step["h_t"]
         z_t = step["z_t"]
@@ -202,11 +200,9 @@ def main():
     rollout_actions = actions_batch[:, args.context_len - 1:args.context_len - 1 + args.rollout_len]
     imagination = rssm_model.imagine(h_t, z_t, rollout_actions)
 
-    # Decode imagined obs_pred -> AE latents -> images
-    imagined_obs_pred = imagination["obs_pred"]  # (1, rollout_len, rssm_dim)
-    imagined_ae_latents = rssm_model.projector_decode(
-        imagined_obs_pred.reshape(-1, imagined_obs_pred.shape[-1])
-    )  # (rollout_len, ae_latent_dim)
+    # obs_pred is already in AE latent space (no projector)
+    imagined_obs_pred = imagination["obs_pred"]  # (1, rollout_len, ae_latent_dim)
+    imagined_ae_latents = imagined_obs_pred.reshape(-1, imagined_obs_pred.shape[-1])
 
     # Decode ground truth AE latents for the rollout period
     gt_ae_latents = seq_latents[args.context_len:args.context_len + args.rollout_len]
@@ -226,11 +222,9 @@ def main():
         ctx_ae_latents, ae_model, num_encoder_blocks, latent_channels
     )
 
-    # Also get context reconstructions via posterior
-    ctx_obs_pred = context_out["obs_pred"]  # (1, ctx_len, rssm_dim)
-    ctx_rssm_ae_latents = rssm_model.projector_decode(
-        ctx_obs_pred.reshape(-1, ctx_obs_pred.shape[-1])
-    )
+    # Context obs_pred is already in AE latent space (no projector)
+    ctx_obs_pred = context_out["obs_pred"]  # (1, ctx_len, ae_latent_dim)
+    ctx_rssm_ae_latents = ctx_obs_pred.reshape(-1, ctx_obs_pred.shape[-1])
     ctx_rssm_images = decode_latents_to_images(
         ctx_rssm_ae_latents, ae_model, num_encoder_blocks, latent_channels
     )

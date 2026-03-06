@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sigmoid Mismatch Diagram</title>
+<style>
+  body { background: #1a1a1a; color: #e0e0e0; font-family: 'SF Mono', 'Fira Code', monospace; margin: 0; padding: 32px; }
+  h1 { font-size: 18px; color: #fff; margin-bottom: 4px; font-weight: 600; }
+  .subtitle { font-size: 12px; color: #888; margin-bottom: 40px; }
+  svg text { font-family: 'SF Mono', 'Fira Code', monospace; }
+</style>
+</head>
+<body>
+<h1>Why the reconstruction has wrong colors</h1>
+<p class="subtitle">Sigmoid output range [0,1] vs ImageNet-normalized target range [−2, 2.6]</p>
+
+<svg width="960" height="620" viewBox="0 0 960 620">
+
+  <!-- ── SECTION 1: Pipeline boxes ───────────────────────────────────── -->
+
+  <!-- Raw image box -->
+  <rect x="20" y="40" width="120" height="56" rx="6" fill="#2a3a2a" stroke="#4a7a4a" stroke-width="1.5"/>
+  <text x="80" y="63" text-anchor="middle" fill="#7dba7d" font-size="11">Raw image</text>
+  <text x="80" y="80" text-anchor="middle" fill="#4a8a4a" font-size="10">pixels ∈ [0, 1]</text>
+
+  <!-- Arrow -->
+  <line x1="140" y1="68" x2="176" y2="68" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="158" y="60" text-anchor="middle" fill="#666" font-size="9">ImageNet</text>
+  <text x="158" y="72" text-anchor="middle" fill="#666" font-size="9">normalize</text>
+
+  <!-- Normalized input box -->
+  <rect x="178" y="40" width="140" height="56" rx="6" fill="#2a2a3a" stroke="#5a5aaa" stroke-width="1.5"/>
+  <text x="248" y="60" text-anchor="middle" fill="#8888dd" font-size="11">Normalized tensor</text>
+  <text x="248" y="76" text-anchor="middle" fill="#5a5aaa" font-size="10" font-weight="bold">values ∈ [−2.1, 2.6]</text>
+
+  <!-- Arrow to encoder -->
+  <line x1="318" y1="68" x2="354" y2="68" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Encoder box -->
+  <rect x="356" y="40" width="100" height="56" rx="6" fill="#2a2a2a" stroke="#666" stroke-width="1.5"/>
+  <text x="406" y="63" text-anchor="middle" fill="#aaa" font-size="11">Encoder</text>
+  <text x="406" y="79" text-anchor="middle" fill="#666" font-size="10">5× Conv2d</text>
+
+  <!-- Arrow -->
+  <line x1="456" y1="68" x2="492" y2="68" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Bottleneck box -->
+  <rect x="494" y="40" width="100" height="56" rx="6" fill="#2a2a2a" stroke="#666" stroke-width="1.5"/>
+  <text x="544" y="60" text-anchor="middle" fill="#aaa" font-size="11">Bottleneck</text>
+  <text x="544" y="76" text-anchor="middle" fill="#666" font-size="10">16×16×512</text>
+
+  <!-- Arrow -->
+  <line x1="594" y1="68" x2="630" y2="68" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Decoder box -->
+  <rect x="632" y="40" width="100" height="56" rx="6" fill="#2a2a2a" stroke="#666" stroke-width="1.5"/>
+  <text x="682" y="63" text-anchor="middle" fill="#aaa" font-size="11">Decoder</text>
+  <text x="682" y="79" text-anchor="middle" fill="#666" font-size="10">5× ConvT2d</text>
+
+  <!-- Arrow -->
+  <line x1="732" y1="68" x2="768" y2="68" stroke="#cc4444" stroke-width="2" marker-end="url(#arr-red)"/>
+  <text x="750" y="60" text-anchor="middle" fill="#cc4444" font-size="9" font-weight="bold">Sigmoid</text>
+
+  <!-- Output box -->
+  <rect x="770" y="40" width="140" height="56" rx="6" fill="#3a2020" stroke="#aa4444" stroke-width="1.5"/>
+  <text x="840" y="60" text-anchor="middle" fill="#dd7777" font-size="11">Reconstruction</text>
+  <text x="840" y="76" text-anchor="middle" fill="#aa4444" font-size="10" font-weight="bold">values ∈ [0, 1]</text>
+
+  <!-- MSE loss brace: normalized input → output -->
+  <path d="M248,100 Q248,126 544,126 Q840,126 840,100" fill="none" stroke="#e08840" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="544" y="142" text-anchor="middle" fill="#e08840" font-size="11" font-weight="bold">MSE Loss tries to match these two</text>
+  <text x="544" y="157" text-anchor="middle" fill="#a06020" font-size="10">target ∈ [−2.1, 2.6]  vs  output ∈ [0, 1]  — irreconcilable</text>
+
+  <!-- ── SECTION 2: Number line ──────────────────────────────────────── -->
+
+  <text x="40" y="210" fill="#888" font-size="12" font-weight="bold">VALUE RANGES ON A NUMBER LINE</text>
+
+  <!-- Axis -->
+  <line x1="60" y1="260" x2="900" y2="260" stroke="#444" stroke-width="1.5"/>
+
+  <!-- Tick marks and labels: map value range [-3, 3] to x=[60, 900] -->
+  <!-- scale: (900-60)/6 = 140px per unit, zero at x=60+3*140=480 -->
+
+  <!-- helper: x = 480 + value * 140 -->
+  <!-- -3 → 60, -2 → 200, -1 → 340, 0 → 480, 1 → 620, 2 → 760, 3 → 900 -->
+
+  <line x1="60"  y1="255" x2="60"  y2="265" stroke="#555" stroke-width="1.5"/>
+  <line x1="200" y1="255" x2="200" y2="265" stroke="#555" stroke-width="1.5"/>
+  <line x1="340" y1="255" x2="340" y2="265" stroke="#555" stroke-width="1.5"/>
+  <line x1="480" y1="250" x2="480" y2="270" stroke="#777" stroke-width="2"/>
+  <line x1="620" y1="255" x2="620" y2="265" stroke="#555" stroke-width="1.5"/>
+  <line x1="760" y1="255" x2="760" y2="265" stroke="#555" stroke-width="1.5"/>
+  <line x1="900" y1="255" x2="900" y2="265" stroke="#555" stroke-width="1.5"/>
+
+  <text x="60"  y="278" text-anchor="middle" fill="#555" font-size="11">−3</text>
+  <text x="200" y="278" text-anchor="middle" fill="#555" font-size="11">−2</text>
+  <text x="340" y="278" text-anchor="middle" fill="#555" font-size="11">−1</text>
+  <text x="480" y="278" text-anchor="middle" fill="#666" font-size="11">0</text>
+  <text x="620" y="278" text-anchor="middle" fill="#555" font-size="11">1</text>
+  <text x="760" y="278" text-anchor="middle" fill="#555" font-size="11">2</text>
+  <text x="900" y="278" text-anchor="middle" fill="#555" font-size="11">3</text>
+
+  <!-- ImageNet normalized range: approx -2.1 to 2.6 -->
+  <!-- -2.1 → 480 - 2.1*140 = 480-294 = 186 -->
+  <!-- 2.6  → 480 + 2.6*140 = 480+364 = 844 -->
+  <rect x="186" y="240" width="658" height="14" rx="3" fill="#4444aa" fill-opacity="0.35" stroke="#6666cc" stroke-width="1.5"/>
+  <text x="515" y="251" text-anchor="middle" fill="#9999ee" font-size="10" font-weight="bold">ImageNet-normalized input  [−2.1, 2.6]</text>
+
+  <!-- Sigmoid output range: 0 to 1 -->
+  <!-- 0 → 480, 1 → 620 -->
+  <rect x="480" y="226" width="140" height="14" rx="3" fill="#aa3333" fill-opacity="0.45" stroke="#cc5555" stroke-width="2"/>
+  <text x="550" y="222" text-anchor="middle" fill="#dd6666" font-size="10" font-weight="bold">Sigmoid output  [0, 1]</text>
+
+  <!-- Overlap callout -->
+  <rect x="480" y="226" width="140" height="28" rx="3" fill="none" stroke="#e08840" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <line x1="550" y1="254" x2="550" y2="298" stroke="#e08840" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="550" y="312" text-anchor="middle" fill="#e08840" font-size="10">overlap: only [0, 1]</text>
+  <text x="550" y="325" text-anchor="middle" fill="#a06020" font-size="10">model can't reconstruct</text>
+  <text x="550" y="338" text-anchor="middle" fill="#a06020" font-size="10">negative values at all</text>
+
+  <!-- Left gap annotation -->
+  <line x1="186" y1="300" x2="479" y2="300" stroke="#5555aa" stroke-width="1.5" marker-start="url(#arr-blue)" marker-end="url(#arr-blue)"/>
+  <text x="332" y="316" text-anchor="middle" fill="#6666bb" font-size="10">unreachable by sigmoid</text>
+  <text x="332" y="329" text-anchor="middle" fill="#444488" font-size="10">(negative normalized values)</text>
+
+  <!-- Right gap annotation -->
+  <line x1="621" y1="300" x2="844" y2="300" stroke="#5555aa" stroke-width="1.5" marker-start="url(#arr-blue)" marker-end="url(#arr-blue)"/>
+  <text x="732" y="316" text-anchor="middle" fill="#6666bb" font-size="10">partially unreachable</text>
+  <text x="732" y="329" text-anchor="middle" fill="#444488" font-size="10">(values > 1 after sigmoid)</text>
+
+  <!-- ── SECTION 3: Sigmoid curve ─────────────────────────────────────── -->
+
+  <text x="40" y="390" fill="#888" font-size="12" font-weight="bold">THE SIGMOID FUNCTION  σ(x) = 1 / (1 + e⁻ˣ)</text>
+
+  <!-- Axes -->
+  <line x1="80" y1="560" x2="500" y2="560" stroke="#444" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="80" y1="410" x2="80" y2="565" stroke="#444" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <text x="505" y="564" fill="#555" font-size="10">x</text>
+  <text x="70"  y="408" fill="#555" font-size="10">σ</text>
+
+  <!-- y-axis ticks: 0 at y=560, 1 at y=420. scale = 140px/unit -->
+  <!-- x-axis: center at x=80+180=260, -3 at x=80, +3 at x=80+360=440. scale=60px/unit -->
+  <line x1="75"  y1="560" x2="85"  y2="560" stroke="#555" stroke-width="1"/>
+  <line x1="75"  y1="490" x2="85"  y2="490" stroke="#555" stroke-width="1"/>
+  <line x1="75"  y1="420" x2="85"  y2="420" stroke="#555" stroke-width="1"/>
+  <text x="68" y="563" text-anchor="end" fill="#555" font-size="10">0</text>
+  <text x="68" y="494" text-anchor="end" fill="#555" font-size="10">0.5</text>
+  <text x="68" y="424" text-anchor="end" fill="#555" font-size="10">1</text>
+
+  <!-- x-axis ticks: x=80 is -3, x=260 is 0, x=440 is +3; scale=60px/unit -->
+  <line x1="80"  y1="557" x2="80"  y2="563" stroke="#555" stroke-width="1"/>
+  <line x1="140" y1="557" x2="140" y2="563" stroke="#555" stroke-width="1"/>
+  <line x1="200" y1="557" x2="200" y2="563" stroke="#555" stroke-width="1"/>
+  <line x1="260" y1="555" x2="260" y2="565" stroke="#777" stroke-width="1.5"/>
+  <line x1="320" y1="557" x2="320" y2="563" stroke="#555" stroke-width="1"/>
+  <line x1="380" y1="557" x2="380" y2="563" stroke="#555" stroke-width="1"/>
+  <line x1="440" y1="557" x2="440" y2="563" stroke="#555" stroke-width="1"/>
+  <text x="80"  y="574" text-anchor="middle" fill="#555" font-size="10">−3</text>
+  <text x="140" y="574" text-anchor="middle" fill="#555" font-size="10">−2</text>
+  <text x="200" y="574" text-anchor="middle" fill="#555" font-size="10">−1</text>
+  <text x="260" y="574" text-anchor="middle" fill="#666" font-size="10">0</text>
+  <text x="320" y="574" text-anchor="middle" fill="#555" font-size="10">1</text>
+  <text x="380" y="574" text-anchor="middle" fill="#555" font-size="10">2</text>
+  <text x="440" y="574" text-anchor="middle" fill="#555" font-size="10">3</text>
+
+  <!-- Sigmoid curve: σ(x) plotted from x=-3 to x=3 -->
+  <!-- y_screen = 560 - σ(x)*140  |  x_screen = 260 + x*60 -->
+  <polyline fill="none" stroke="#cc5555" stroke-width="2.5"
+    points="
+      80,556.5
+      86,555.5  92,554.1  98,552.2  104,549.6  110,546.0
+      116,541.1 122,534.6 128,526.2 134,515.7 140,503.1
+      146,488.9 152,473.5 158,457.5 164,441.5 170,426.4
+      176,412.7 182,400.6 188,390.2 194,381.4 200,374.0
+      206,368.0 212,363.0 218,359.1 224,356.1 230,353.9
+      236,352.3 242,351.2 248,350.5 254,350.1 260,350.0
+      266,349.9 272,349.5 278,348.8 284,347.7 290,346.1
+      296,343.9 302,341.0 308,337.0 314,331.9 320,325.7
+      326,318.4 332,310.0 338,300.4 344,289.8 350,278.4
+      356,266.6 362,254.6 368,243.1 374,232.4 380,222.8
+      386,214.4 392,207.3 398,201.5 404,197.1 410,193.8
+      416,191.6 422,190.1 428,189.4 434,189.0 440,188.5
+    "
+  />
+
+  <!-- Flat ceiling at σ=1 (y=420) -->
+  <line x1="80" y1="420" x2="460" y2="420" stroke="#aa3333" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="464" y="424" fill="#aa3333" font-size="10">σ=1</text>
+
+  <!-- Flat floor at σ=0 (y=560) -->
+  <line x1="80" y1="560" x2="460" y2="560" stroke="#aa3333" stroke-width="1" stroke-dasharray="4,3"/>
+
+  <!-- Shade the "unreachable" zone for negative inputs: x=-2.1 to 0 -->
+  <!-- x=-2.1 → x_screen=260-2.1*60=134, x=0 → x_screen=260 -->
+  <rect x="80" y="420" width="180" height="140" fill="#4444aa" fill-opacity="0.12"/>
+  <text x="162" y="450" text-anchor="middle" fill="#6666bb" font-size="10">σ crushes all</text>
+  <text x="162" y="463" text-anchor="middle" fill="#6666bb" font-size="10">these inputs</text>
+  <text x="162" y="476" text-anchor="middle" fill="#6666bb" font-size="10">into ≈ 0–0.5</text>
+
+  <!-- Shade the valid [0,1] output band at right -->
+  <rect x="260" y="420" width="200" height="140" fill="#aa3333" fill-opacity="0.08"/>
+
+  <!-- annotation: the normalized blue channel mean is -2.1/std stuff -->
+  <!-- mark x = -2.1 on curve -->
+  <line x1="134" y1="503" x2="134" y2="575" stroke="#6666bb" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="134" y="587" text-anchor="middle" fill="#6666bb" font-size="9">−2.1</text>
+  <text x="134" y="598" text-anchor="middle" fill="#445566" font-size="9">(min norm.)</text>
+
+  <!-- mark x = 2.6 on curve -->
+  <!-- x_screen = 260 + 2.6*60 = 416 -->
+  <line x1="416" y1="192" x2="416" y2="575" stroke="#6666bb" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="416" y="587" text-anchor="middle" fill="#6666bb" font-size="9">2.6</text>
+  <text x="416" y="598" text-anchor="middle" fill="#445566" font-size="9">(max norm.)</text>
+
+  <!-- ── SECTION 4: What denorm does ─────────────────────────────────── -->
+
+  <text x="560" y="390" fill="#888" font-size="12" font-weight="bold">DENORMALIZATION APPLIED TO BOTH</text>
+  <text x="560" y="408" fill="#555" font-size="11">pixel = tensor × std + mean   (same formula, different input range)</text>
+
+  <!-- Two boxes: original vs reconstruction after denorm -->
+  <rect x="560" y="422" width="180" height="80" rx="6" fill="#222a22" stroke="#4a7a4a" stroke-width="1.5"/>
+  <text x="650" y="443" text-anchor="middle" fill="#7dba7d" font-size="11" font-weight="bold">Original (correct)</text>
+  <text x="650" y="461" text-anchor="middle" fill="#4a8a4a" font-size="10">tensor ∈ [−2.1, 2.6]</text>
+  <text x="650" y="477" text-anchor="middle" fill="#4a8a4a" font-size="10">× 0.229 + 0.485</text>
+  <text x="650" y="493" text-anchor="middle" fill="#7dba7d" font-size="10" font-weight="bold">→ pixel ∈ [0, 1]  ✓</text>
+
+  <rect x="760" y="422" width="180" height="80" rx="6" fill="#2a1a1a" stroke="#aa4444" stroke-width="1.5"/>
+  <text x="850" y="443" text-anchor="middle" fill="#dd6666" font-size="11" font-weight="bold">Reconstruction (wrong)</text>
+  <text x="850" y="461" text-anchor="middle" fill="#aa4444" font-size="10">tensor ∈ [0, 1]  ← sigmoid</text>
+  <text x="850" y="477" text-anchor="middle" fill="#aa4444" font-size="10">× 0.229 + 0.485</text>
+  <text x="850" y="493" text-anchor="middle" fill="#dd6666" font-size="10" font-weight="bold">→ pixel ∈ [0.49, 0.71]  ✗</text>
+
+  <text x="850" y="524" text-anchor="middle" fill="#a06020" font-size="10">compressed into ~20% of</text>
+  <text x="850" y="538" text-anchor="middle" fill="#a06020" font-size="10">the visible range →</text>
+  <text x="850" y="552" text-anchor="middle" fill="#e08840" font-size="10" font-weight="bold">washed-out, grey-shifted</text>
+
+  <!-- Fix box -->
+  <rect x="560" y="518" width="180" height="50" rx="6" fill="#1a2a1a" stroke="#2a6a2a" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="650" y="538" text-anchor="middle" fill="#5aaa5a" font-size="11" font-weight="bold">Fix: remove Sigmoid</text>
+  <text x="650" y="554" text-anchor="middle" fill="#3a7a3a" font-size="10">decoder output is unbounded</text>
+  <text x="650" y="567" text-anchor="middle" fill="#3a7a3a" font-size="10">→ can match [−2.1, 2.6]  ✓</text>
+
+  <!-- Arrowhead markers -->
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <marker id="arr-red" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#cc4444"/>
+    </marker>
+    <marker id="arr-blue" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#5555aa"/>
+    </marker>
+  </defs>
+
+</svg>
+</body>
+</html>

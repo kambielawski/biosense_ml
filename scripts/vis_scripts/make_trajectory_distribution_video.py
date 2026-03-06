@@ -216,12 +216,9 @@ def main():
     ctx_latents = seq_latents[:args.context_len].unsqueeze(0)
     ctx_actions = seq_actions[:args.context_len].unsqueeze(0)
 
-    projected_ctx = rssm.projector_encode(ctx_latents.reshape(-1, ctx_latents.shape[-1]))
-    projected_ctx = projected_ctx.reshape(1, args.context_len, -1)
-
     for t in range(args.context_len):
         a_prev = torch.zeros(B, rssm.action_dim, device=device) if t == 0 else ctx_actions[:, t - 1]
-        x_t = projected_ctx[:, t]
+        x_t = ctx_latents[:, t]
         step = rssm.forward_single_step(h_t, z_t, a_prev, x_t)
         h_t = step["h_t"]
         z_t = step["z_t"]
@@ -239,7 +236,7 @@ def main():
     actions_batch = rollout_actions.expand(args.num_rollouts, -1, -1)
 
     imagination = rssm.imagine(h_batch, z_batch, actions_batch)
-    # imagination["obs_pred"]: (num_rollouts, rollout_len, rssm_dim)
+    # imagination["obs_pred"]: (num_rollouts, rollout_len, ae_latent_dim)
 
     # --- Decode all rollouts and extract centroids ---
     print("Decoding rollouts and extracting centroids...")
@@ -248,8 +245,8 @@ def main():
 
     for t in tqdm(range(args.rollout_len), desc="Decoding timesteps"):
         # Get predicted obs for all rollouts at this timestep
-        obs_pred_t = imagination["obs_pred"][:, t, :]  # (num_rollouts, rssm_dim)
-        ae_latents_t = rssm.projector_decode(obs_pred_t)  # (num_rollouts, ae_latent_dim)
+        obs_pred_t = imagination["obs_pred"][:, t, :]  # (num_rollouts, ae_latent_dim)
+        ae_latents_t = obs_pred_t  # already in AE space, no projector
 
         # Decode through AE in one batch
         images_t = decode_latents_to_images(ae_latents_t, ae_model, num_encoder_blocks, latent_channels)
