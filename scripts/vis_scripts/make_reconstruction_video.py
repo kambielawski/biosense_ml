@@ -107,18 +107,31 @@ def parse_args() -> argparse.Namespace:
         type=int,
         help="Channel depth at the bottleneck.",
     )
+    parser.add_argument(
+        "--bottleneck_spatial",
+        default=None,
+        type=int,
+        help="Adaptive pool target spatial size (e.g. 12 for 12x12). None = use natural size.",
+    )
     return parser.parse_args()
 
 
-def _minimal_cfg(num_encoder_blocks: int = 5, latent_channels: int = 512) -> OmegaConf:
+def _minimal_cfg(
+    num_encoder_blocks: int = 5,
+    latent_channels: int = 512,
+    bottleneck_spatial: int | None = None,
+) -> OmegaConf:
     """Build the minimal OmegaConf DictConfig that get_transforms and ConvAutoencoder need."""
+    model_cfg = {
+        "input_size": 512,
+        "latent_channels": latent_channels,
+        "num_encoder_blocks": num_encoder_blocks,
+    }
+    if bottleneck_spatial is not None:
+        model_cfg["bottleneck_spatial"] = bottleneck_spatial
     return OmegaConf.create(
         {
-            "model": {
-                "input_size": 512,
-                "latent_channels": latent_channels,
-                "num_encoder_blocks": num_encoder_blocks,
-            },
+            "model": model_cfg,
             "data": {
                 "preprocessing": {
                     "mean": [0.485, 0.456, 0.406],
@@ -134,6 +147,7 @@ def load_model(
     device: torch.device,
     num_encoder_blocks: int = 5,
     latent_channels: int = 512,
+    bottleneck_spatial: int | None = None,
 ) -> ConvAutoencoder:
     """Instantiate ConvAutoencoder and load weights from checkpoint.
 
@@ -142,11 +156,16 @@ def load_model(
         device: Torch device to move the model onto.
         num_encoder_blocks: Number of stride-2 encoder blocks.
         latent_channels: Channel depth at bottleneck.
+        bottleneck_spatial: Adaptive pool target spatial size (None = natural).
 
     Returns:
         Model in eval mode on the requested device.
     """
-    cfg = _minimal_cfg(num_encoder_blocks=num_encoder_blocks, latent_channels=latent_channels)
+    cfg = _minimal_cfg(
+        num_encoder_blocks=num_encoder_blocks,
+        latent_channels=latent_channels,
+        bottleneck_spatial=bottleneck_spatial,
+    )
     model = ConvAutoencoder(cfg.model)
     load_checkpoint(checkpoint_path, model)
     model.to(device)
@@ -333,6 +352,7 @@ def main() -> None:
         device,
         num_encoder_blocks=args.num_encoder_blocks,
         latent_channels=args.latent_channels,
+        bottleneck_spatial=args.bottleneck_spatial,
     )
 
     # ------------------------------------------------------------------
@@ -341,6 +361,7 @@ def main() -> None:
     cfg = _minimal_cfg(
         num_encoder_blocks=args.num_encoder_blocks,
         latent_channels=args.latent_channels,
+        bottleneck_spatial=args.bottleneck_spatial,
     )
     transform = get_transforms(cfg, split="val")
     print(f"Loading frames from shard: {args.shard}")

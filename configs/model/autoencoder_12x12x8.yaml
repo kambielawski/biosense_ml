@@ -1,0 +1,5 @@
+name: autoencoder
+latent_channels: 8
+num_encoder_blocks: 5  # natural spatial: 16x16, then adaptive pool to 12x12
+bottleneck_spatial: 12  # adaptive pool target → 12x12x8 = 1,152 dims
+input_size: 512

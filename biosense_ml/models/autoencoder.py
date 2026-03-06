@@ -2,6 +2,7 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from omegaconf import DictConfig
 
 # Fixed intermediate channel progression regardless of depth
@@ -16,8 +17,9 @@ class ConvAutoencoder(nn.Module):
     No final activation — output is unbounded to match ImageNet-normalized
     input range (approximately [-2.1, 2.6]).
 
-    Bottleneck spatial size = 512 / (2 ** num_encoder_blocks).
-    Default (5 blocks): 16x16 with latent_channels=512.
+    Bottleneck spatial size = 512 / (2 ** num_encoder_blocks), unless
+    bottleneck_spatial is set, in which case an adaptive pool resizes
+    the encoder output to that target spatial size.
     """
 
     def __init__(self, cfg: DictConfig) -> None:
@@ -27,13 +29,19 @@ class ConvAutoencoder(nn.Module):
             cfg: Model config node (cfg.model). Uses:
                  - cfg.latent_channels: bottleneck channel depth (default 512)
                  - cfg.num_encoder_blocks: number of stride-2 blocks (default 5)
+                 - cfg.bottleneck_spatial: optional target spatial size (e.g. 12
+                   for 12x12). When set, adds AdaptiveAvgPool2d after encoder
+                   and bilinear upsample before decoder.
         """
         super().__init__()
         latent_channels: int = getattr(cfg, "latent_channels", 512)
         num_encoder_blocks: int = getattr(cfg, "num_encoder_blocks", 5)
+        bottleneck_spatial: int | None = getattr(cfg, "bottleneck_spatial", None)
+
+        self._natural_spatial = 512 // (2 ** num_encoder_blocks)
+        self._bottleneck_spatial = bottleneck_spatial
 
         # Build channel list: [3, <intermediates>, latent_channels]
-        # intermediates = _INTERMEDIATE_CHANNELS[:num_encoder_blocks - 1]
         intermediates = _INTERMEDIATE_CHANNELS[: num_encoder_blocks - 1]
         enc_channels = [3] + intermediates + [latent_channels]
 
@@ -57,6 +65,12 @@ class ConvAutoencoder(nn.Module):
                 )
             )
         self.encoder = nn.Sequential(*encoder_blocks)
+
+        # Optional adaptive pooling to non-power-of-2 spatial size
+        if bottleneck_spatial is not None:
+            self.adaptive_pool = nn.AdaptiveAvgPool2d(bottleneck_spatial)
+        else:
+            self.adaptive_pool = None
 
         # ------------------------------------------------------------------
         # Decoder: each block doubles spatial dims (mirrors encoder)
@@ -91,9 +105,22 @@ class ConvAutoencoder(nn.Module):
             Tuple of:
                 reconstruction: Reconstructed images (B, 3, 512, 512), unbounded,
                     same scale as input (ImageNet-normalized).
-                bottleneck: Encoder output (B, latent_channels, H_b, W_b) where
-                    H_b = W_b = 512 / (2 ** num_encoder_blocks).
+                bottleneck: Encoder output (B, latent_channels, H_b, W_b).
         """
         bottleneck = self.encoder(x)
-        reconstruction = self.decoder(bottleneck)
+        if self.adaptive_pool is not None:
+            bottleneck = self.adaptive_pool(bottleneck)
+
+        # Decoder expects the natural spatial size from stride-2 blocks
+        if self._bottleneck_spatial is not None:
+            dec_input = F.interpolate(
+                bottleneck,
+                size=self._natural_spatial,
+                mode="bilinear",
+                align_corners=False,
+            )
+        else:
+            dec_input = bottleneck
+
+        reconstruction = self.decoder(dec_input)
         return reconstruction, bottleneck
