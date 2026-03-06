@@ -4,12 +4,13 @@ Architecture follows DreamerV3 (Hafner et al., 2023) adapted for BIOSENSE:
   - Continuous Gaussian latents (diagonal) instead of categorical
   - GRU deterministic backbone
   - Operates directly on flattened AE bottleneck vectors (no projector)
-  - Observation predictor reconstructing AE latents from (h_t, z_t)
+  - Residual prediction: obs_predictor predicts δ_t = x_t - x_{t-1}
 
 RSSM equations:
   Deterministic:  h_t = GRU(h_{t-1}, concat(z_{t-1}, a_{t-1}))
   Prior:          p(z_t | h_t) = N(mu_prior(h_t), sigma_prior(h_t))
-  Posterior:      q(z_t | h_t, x_t) = N(mu_post(h_t, x_t), sigma_post(h_t, x_t))
+  Posterior:      q(z_t | h_t, δ_t) = N(mu_post(h_t, δ_t), sigma_post(h_t, δ_t))
+  Observation:    δ̂_t = obs_predictor(h_t, z_t)
 """
 
 import torch
@@ -61,26 +62,16 @@ class RSSM(nn.Module):
     """Recurrent State-Space Model with continuous Gaussian latents.
 
     Operates directly on flattened AE bottleneck vectors (ae_latent_dim).
-    No projector — obs_predictor maps (h_t, z_t) -> ae_latent_dim.
+    Uses residual prediction: predicts frame-to-frame deltas δ_t = x_t - x_{t-1}.
 
     Components:
       - gru: GRU cell for deterministic state h_t
       - prior_head: GaussianHead predicting p(z_t | h_t)
-      - posterior_head: GaussianHead predicting q(z_t | h_t, x_t)
-      - obs_predictor: MLP predicting AE latent from (h_t, z_t)
+      - posterior_head: GaussianHead predicting q(z_t | h_t, δ_t)
+      - obs_predictor: MLP predicting δ_t from (h_t, z_t)
     """
 
     def __init__(self, cfg: DictConfig) -> None:
-        """Initialize RSSM from config.
-
-        Args:
-            cfg: Model config node (cfg.model). Expected keys:
-                - ae_latent_dim: Flattened AE bottleneck size (e.g., 8192)
-                - h_dim: GRU hidden state dimension (default 512)
-                - z_dim: Stochastic latent dimension (default 256)
-                - action_dim: Action vector dimension (default 3)
-                - min_std: Minimum std for Gaussian heads (default 0.1)
-        """
         super().__init__()
 
         ae_latent_dim: int = cfg.ae_latent_dim
@@ -100,10 +91,10 @@ class RSSM(nn.Module):
         # Prior: p(z_t | h_t)
         self.prior_head = GaussianHead(h_dim, h_dim, z_dim, min_std=min_std)
 
-        # Posterior: q(z_t | h_t, x_t) where x_t is the raw AE latent
+        # Posterior: q(z_t | h_t, δ_t) where δ_t is the frame-to-frame delta
         self.posterior_head = GaussianHead(h_dim + ae_latent_dim, h_dim, z_dim, min_std=min_std)
 
-        # Observation predictor: predict AE latent from (h_t, z_t)
+        # Observation predictor: predict δ_t from (h_t, z_t)
         self.obs_predictor = MLP(h_dim + z_dim, h_dim, ae_latent_dim, num_layers=1)
 
     def initial_state(self, batch_size: int, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
@@ -133,22 +124,22 @@ class RSSM(nn.Module):
     def compute_posterior(
         self,
         h_t: torch.Tensor,
-        x_t: torch.Tensor,
+        delta_t: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute posterior distribution q(z_t | h_t, x_t).
+        """Compute posterior distribution q(z_t | h_t, δ_t).
 
         Args:
             h_t: Deterministic state, shape (B, h_dim).
-            x_t: Raw AE latent, shape (B, ae_latent_dim).
+            delta_t: Frame-to-frame delta, shape (B, ae_latent_dim).
         """
-        inp = torch.cat([h_t, x_t], dim=-1)
+        inp = torch.cat([h_t, delta_t], dim=-1)
         return self.posterior_head(inp)
 
     def predict_observation(self, h_t: torch.Tensor, z_t: torch.Tensor) -> torch.Tensor:
-        """Predict AE latent from model state.
+        """Predict frame-to-frame delta from model state.
 
         Returns:
-            Predicted AE latent, shape (B, ae_latent_dim).
+            Predicted delta δ̂_t, shape (B, ae_latent_dim).
         """
         inp = torch.cat([h_t, z_t], dim=-1)
         return self.obs_predictor(inp)
@@ -185,23 +176,23 @@ class RSSM(nn.Module):
         h_prev: torch.Tensor,
         z_prev: torch.Tensor,
         a_prev: torch.Tensor,
-        x_t: torch.Tensor,
+        delta_t: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
-        """One step of teacher-forced RSSM.
+        """One step of teacher-forced RSSM with residual prediction.
 
         Args:
             h_prev: Previous deterministic state (B, h_dim).
             z_prev: Previous stochastic state (B, z_dim).
             a_prev: Previous action (B, action_dim).
-            x_t: Current AE latent (B, ae_latent_dim).
+            delta_t: Current frame-to-frame delta (B, ae_latent_dim).
 
         Returns:
-            Dict with h_t, prior/posterior params, z_t, obs_pred.
+            Dict with h_t, prior/posterior params, z_t, obs_pred (predicted delta).
         """
         h_t = self.step_deterministic(h_prev, z_prev, a_prev)
 
         prior_mu, prior_sigma = self.compute_prior(h_t)
-        post_mu, post_sigma = self.compute_posterior(h_t, x_t)
+        post_mu, post_sigma = self.compute_posterior(h_t, delta_t)
 
         z_t = self.sample_gaussian(post_mu, post_sigma)
         obs_pred = self.predict_observation(h_t, z_t)
@@ -221,7 +212,10 @@ class RSSM(nn.Module):
         ae_latents: torch.Tensor,
         actions: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
-        """Teacher-forced forward pass over a sequence.
+        """Teacher-forced forward pass over a sequence with residual prediction.
+
+        Computes deltas δ_t = x_t - x_{t-1} internally. The posterior receives
+        deltas, and the reconstruction target is deltas.
 
         Args:
             ae_latents: Flattened AE bottlenecks, shape (B, T, ae_latent_dim).
@@ -231,11 +225,17 @@ class RSSM(nn.Module):
             Dict with stacked tensors over time dimension (B, T, ...):
                 prior_mu, prior_sigma, post_mu, post_sigma: (B, T, z_dim)
                 z_t: Sampled posterior states (B, T, z_dim)
-                obs_pred: Predicted AE latents (B, T, ae_latent_dim)
-                obs_target: Actual AE latents (B, T, ae_latent_dim)
+                obs_pred: Predicted deltas (B, T, ae_latent_dim)
+                obs_target: Actual deltas (B, T, ae_latent_dim)
+                h_final: Final deterministic state (B, h_dim)
         """
         B, T, _ = ae_latents.shape
         device = ae_latents.device
+
+        # Compute frame-to-frame deltas
+        # δ_0 = zeros, δ_t = x_t - x_{t-1} for t > 0
+        zeros = torch.zeros(B, 1, self.ae_latent_dim, device=device)
+        deltas = torch.cat([zeros, ae_latents[:, 1:] - ae_latents[:, :-1]], dim=1)
 
         # Initialize states
         h_t, z_t = self.initial_state(B, device)
@@ -252,8 +252,8 @@ class RSSM(nn.Module):
             else:
                 a_prev = actions[:, t - 1]
 
-            x_t = ae_latents[:, t]
-            step = self.forward_single_step(h_t, z_t, a_prev, x_t)
+            delta_t = deltas[:, t]
+            step = self.forward_single_step(h_t, z_t, a_prev, delta_t)
 
             h_t = step["h_t"]
             z_t = step["z_t"]
@@ -272,7 +272,8 @@ class RSSM(nn.Module):
             "post_sigma": torch.stack(all_post_sigma, dim=1),
             "z_t": torch.stack(all_z, dim=1),
             "obs_pred": torch.stack(all_obs_pred, dim=1),
-            "obs_target": ae_latents,
+            "obs_target": deltas,
+            "h_final": h_t,
         }
 
     def imagine(
@@ -280,25 +281,32 @@ class RSSM(nn.Module):
         h_0: torch.Tensor,
         z_0: torch.Tensor,
         actions: torch.Tensor,
+        x_last: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
-        """Open-loop imagination: roll out using prior only (no observations).
+        """Open-loop imagination with residual accumulation.
+
+        Rolls out using prior only (no observations). Predicts deltas and
+        accumulates them to produce absolute AE latents for decoding.
 
         Args:
             h_0: Initial deterministic state (B, h_dim).
             z_0: Initial stochastic state (B, z_dim).
             actions: Action sequence (B, T, action_dim).
+            x_last: Last known absolute AE latent (B, ae_latent_dim).
 
         Returns:
             Dict with:
                 prior_mu, prior_sigma: (B, T, z_dim)
                 z_t: Sampled from prior (B, T, z_dim)
-                obs_pred: Predicted AE latents (B, T, ae_latent_dim)
+                obs_pred: Accumulated absolute AE latents (B, T, ae_latent_dim)
+                delta_pred: Raw predicted deltas (B, T, ae_latent_dim)
         """
         B, T, _ = actions.shape
         h_t, z_t = h_0, z_0
+        x_prev = x_last
 
         all_prior_mu, all_prior_sigma = [], []
-        all_z, all_obs_pred = [], []
+        all_z, all_obs_pred, all_delta_pred = [], [], []
 
         for t in range(T):
             a_prev = actions[:, t]
@@ -306,16 +314,22 @@ class RSSM(nn.Module):
 
             prior_mu, prior_sigma = self.compute_prior(h_t)
             z_t = self.sample_gaussian(prior_mu, prior_sigma)
-            obs_pred = self.predict_observation(h_t, z_t)
+            delta_pred = self.predict_observation(h_t, z_t)
+
+            # Accumulate: x̂_t = x_prev + δ̂_t
+            x_t = x_prev + delta_pred
+            x_prev = x_t
 
             all_prior_mu.append(prior_mu)
             all_prior_sigma.append(prior_sigma)
             all_z.append(z_t)
-            all_obs_pred.append(obs_pred)
+            all_obs_pred.append(x_t)
+            all_delta_pred.append(delta_pred)
 
         return {
             "prior_mu": torch.stack(all_prior_mu, dim=1),
             "prior_sigma": torch.stack(all_prior_sigma, dim=1),
             "z_t": torch.stack(all_z, dim=1),
             "obs_pred": torch.stack(all_obs_pred, dim=1),
+            "delta_pred": torch.stack(all_delta_pred, dim=1),
         }

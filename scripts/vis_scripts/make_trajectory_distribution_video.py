@@ -209,17 +209,21 @@ def main():
     seq_latents = torch.tensor(all_latents[start:start + total_len], dtype=torch.float32).to(device)
     seq_actions = torch.tensor(all_actions[start:start + total_len], dtype=torch.float32).to(device)
 
-    # --- Context phase: teacher-force through posterior ---
-    print(f"Running {args.context_len} context frames through posterior...")
+    # --- Context phase: teacher-force through posterior (residual mode) ---
+    print(f"Running {args.context_len} context frames through posterior (residual)...")
     B = 1
     h_t, z_t = rssm.initial_state(B, device)
     ctx_latents = seq_latents[:args.context_len].unsqueeze(0)
     ctx_actions = seq_actions[:args.context_len].unsqueeze(0)
 
+    # Compute deltas for context
+    zeros = torch.zeros(B, 1, rssm.ae_latent_dim, device=device)
+    ctx_deltas = torch.cat([zeros, ctx_latents[:, 1:] - ctx_latents[:, :-1]], dim=1)
+
     for t in range(args.context_len):
         a_prev = torch.zeros(B, rssm.action_dim, device=device) if t == 0 else ctx_actions[:, t - 1]
-        x_t = ctx_latents[:, t]
-        step = rssm.forward_single_step(h_t, z_t, a_prev, x_t)
+        delta_t = ctx_deltas[:, t]
+        step = rssm.forward_single_step(h_t, z_t, a_prev, delta_t)
         h_t = step["h_t"]
         z_t = step["z_t"]
 
@@ -230,12 +234,13 @@ def main():
     rollout_actions = seq_actions[args.context_len - 1:args.context_len - 1 + args.rollout_len]
     rollout_actions = rollout_actions.unsqueeze(0)  # (1, T, action_dim)
 
-    # Repeat initial state for all rollouts
+    # Repeat initial state and x_last for all rollouts
     h_batch = h_t.expand(args.num_rollouts, -1).clone()
     z_batch = z_t.expand(args.num_rollouts, -1).clone()
     actions_batch = rollout_actions.expand(args.num_rollouts, -1, -1)
+    x_last = ctx_latents[:, -1].expand(args.num_rollouts, -1).clone()
 
-    imagination = rssm.imagine(h_batch, z_batch, actions_batch)
+    imagination = rssm.imagine(h_batch, z_batch, actions_batch, x_last)
     # imagination["obs_pred"]: (num_rollouts, rollout_len, ae_latent_dim)
 
     # --- Decode all rollouts and extract centroids ---

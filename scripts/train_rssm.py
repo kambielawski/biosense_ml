@@ -156,7 +156,7 @@ def compute_rssm_loss(
     # Expand mask for broadcasting: (B, T) -> (B, T, 1)
     mask_3d = mask.unsqueeze(-1)
 
-    # --- Reconstruction loss: (optionally weighted) MSE on AE latents ---
+    # --- Reconstruction loss: (optionally weighted) MSE on residuals ---
     recon_sq = (obs_pred - obs_target) ** 2  # (B, T, ae_latent_dim)
     if temporal_weights is not None:
         recon_sq = recon_sq * temporal_weights  # broadcast (ae_latent_dim,)

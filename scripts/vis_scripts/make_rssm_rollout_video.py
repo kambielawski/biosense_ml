@@ -9,6 +9,9 @@ Flow:
   5. Decode both real and predicted AE latents through the AE decoder
   6. Show original (top) vs predicted (bottom) as MP4
 
+The RSSM uses residual prediction: it predicts δ_t = x_t - x_{t-1}.
+During imagination, deltas are accumulated to produce absolute AE latents.
+
 Usage:
     python scripts/vis_scripts/make_rssm_rollout_video.py \
         --rssm_checkpoint outputs/rssm/checkpoints/checkpoint_best.pt \
@@ -92,12 +95,6 @@ def decode_latents_to_images(
 ) -> torch.Tensor:
     """Decode flat AE latents to images via the AE decoder.
 
-    Args:
-        ae_latents: (N, ae_latent_dim) flat latents
-        ae_model: Frozen autoencoder
-        num_encoder_blocks: To compute spatial size
-        latent_channels: Channel depth
-
     Returns:
         (N, 3, 512, 512) decoded images (ImageNet-normalized scale)
     """
@@ -148,7 +145,6 @@ def main():
     if args.sequence_idx is not None:
         si = args.sequence_idx
     else:
-        # Pick the longest sequence
         si = int(np.argmax(seq_lengths))
 
     start = int(seq_starts[si])
@@ -168,19 +164,18 @@ def main():
     latents_batch = seq_latents.unsqueeze(0)  # (1, T, ae_dim)
     actions_batch = seq_actions.unsqueeze(0)  # (1, T, action_dim)
 
-    # --- Context phase: run posterior for context_len steps ---
-    print(f"Running posterior for {args.context_len} context frames...")
+    # --- Context phase: run posterior with residual deltas ---
+    print(f"Running posterior for {args.context_len} context frames (residual mode)...")
     context_latents = latents_batch[:, :args.context_len]
     context_actions = actions_batch[:, :args.context_len]
-    context_out = rssm_model(context_latents, context_actions)
 
-    # Get final state from context
-    h_final = context_out["z_t"][:, -1]  # Wait, need h_t not z_t
-    # h_t isn't directly returned by forward(). Need to re-run manually.
-
-    # Re-run context to get h_t at the end
+    # Compute deltas for context
     B = 1
+    zeros = torch.zeros(B, 1, rssm_model.ae_latent_dim, device=device)
+    context_deltas = torch.cat([zeros, context_latents[:, 1:] - context_latents[:, :-1]], dim=1)
+
     h_t, z_t = rssm_model.initial_state(B, device)
+    ctx_delta_preds = []
 
     for t in range(args.context_len):
         if t == 0:
@@ -188,21 +183,32 @@ def main():
         else:
             a_prev = context_actions[:, t - 1]
 
-        x_t = context_latents[:, t]
-        step = rssm_model.forward_single_step(h_t, z_t, a_prev, x_t)
+        delta_t = context_deltas[:, t]
+        step = rssm_model.forward_single_step(h_t, z_t, a_prev, delta_t)
         h_t = step["h_t"]
         z_t = step["z_t"]
+        ctx_delta_preds.append(step["obs_pred"])
 
     print(f"Context done. h_t norm={h_t.norm().item():.2f}, z_t norm={z_t.norm().item():.2f}")
 
-    # --- Rollout phase: imagine using prior ---
-    print(f"Imagining {args.rollout_len} steps via prior...")
-    rollout_actions = actions_batch[:, args.context_len - 1:args.context_len - 1 + args.rollout_len]
-    imagination = rssm_model.imagine(h_t, z_t, rollout_actions)
+    # Accumulate context delta predictions back to absolute latents
+    ctx_delta_preds = torch.stack(ctx_delta_preds, dim=0)  # (T_ctx, B, ae_dim)
+    ctx_abs_preds = []
+    x_acc = context_latents[:, 0].squeeze(0)  # Use first real frame as anchor
+    ctx_abs_preds.append(x_acc)
+    for t in range(1, args.context_len):
+        x_acc = x_acc + ctx_delta_preds[t, 0]
+        ctx_abs_preds.append(x_acc)
+    ctx_rssm_ae_latents = torch.stack(ctx_abs_preds, dim=0)  # (T_ctx, ae_dim)
 
-    # obs_pred is already in AE latent space (no projector)
-    imagined_obs_pred = imagination["obs_pred"]  # (1, rollout_len, ae_latent_dim)
-    imagined_ae_latents = imagined_obs_pred.reshape(-1, imagined_obs_pred.shape[-1])
+    # --- Rollout phase: imagine using prior with residual accumulation ---
+    print(f"Imagining {args.rollout_len} steps via prior (residual accumulation)...")
+    rollout_actions = actions_batch[:, args.context_len - 1:args.context_len - 1 + args.rollout_len]
+    x_last = context_latents[:, -1]  # Last known absolute latent
+    imagination = rssm_model.imagine(h_t, z_t, rollout_actions, x_last)
+
+    # obs_pred is accumulated absolute AE latents
+    imagined_ae_latents = imagination["obs_pred"].reshape(-1, imagination["obs_pred"].shape[-1])
 
     # Decode ground truth AE latents for the rollout period
     gt_ae_latents = seq_latents[args.context_len:args.context_len + args.rollout_len]
@@ -221,10 +227,6 @@ def main():
     ctx_images = decode_latents_to_images(
         ctx_ae_latents, ae_model, num_encoder_blocks, latent_channels
     )
-
-    # Context obs_pred is already in AE latent space (no projector)
-    ctx_obs_pred = context_out["obs_pred"]  # (1, ctx_len, ae_latent_dim)
-    ctx_rssm_ae_latents = ctx_obs_pred.reshape(-1, ctx_obs_pred.shape[-1])
     ctx_rssm_images = decode_latents_to_images(
         ctx_rssm_ae_latents, ae_model, num_encoder_blocks, latent_channels
     )
