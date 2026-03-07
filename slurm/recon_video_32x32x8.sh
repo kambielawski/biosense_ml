@@ -16,7 +16,7 @@ source .venv/bin/activate
 
 # Use epoch 40 checkpoint (best available — checkpoint_best.pt was deleted by known bug)
 CKPT="outputs/bottleneck_32x32x8/checkpoints/checkpoint_epoch0040.pt"
-SHARD="data/processed/batch-000000/shard-000000.tar"
+SHARD="data/processed/batch-000068/shard-000000.tar"
 OUTPUT="outputs/bottleneck_32x32x8/reconstruction_32x32x8.mp4"
 
 python scripts/vis_scripts/make_reconstruction_video.py \
