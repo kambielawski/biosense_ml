@@ -123,6 +123,7 @@ def compute_conv_rssm_loss(
     beta_kl: float = 1.0,
     kl_balance_alpha: float = 0.8,
     free_bits: float = 0.1,
+    spatial_delta_weighting: bool = False,
 ) -> dict[str, torch.Tensor]:
     """Compute ConvRSSM loss with spatial KL and per-channel free bits.
 
@@ -132,6 +133,7 @@ def compute_conv_rssm_loss(
         beta_kl: Weight for KL loss.
         kl_balance_alpha: KL balancing coefficient.
         free_bits: Per-channel KL floor in nats.
+        spatial_delta_weighting: Weight recon loss per spatial cell by delta magnitude.
 
     Returns:
         Dict with loss, recon_loss, kl_loss, kl_raw, kl_dyn, kl_rep.
@@ -150,6 +152,13 @@ def compute_conv_rssm_loss(
 
     # --- Reconstruction loss: MSE over spatial dims ---
     recon_sq = (obs_pred - obs_target) ** 2  # (B, T, C_ae, H, W)
+
+    if spatial_delta_weighting:
+        # Weight each spatial cell by the L2 norm of the actual delta
+        cell_delta_norm = obs_target.norm(dim=2, keepdim=True)  # (B, T, 1, H, W)
+        weight = cell_delta_norm / (cell_delta_norm.mean(dim=[3, 4], keepdim=True) + 1e-8)
+        recon_sq = weight * recon_sq
+
     recon_loss = (recon_sq * mask_5d).sum() / mask.sum()
 
     # --- Spatial KL with per-channel free bits ---
@@ -235,6 +244,7 @@ def run_epoch(
                     beta_kl=cfg.training.loss.beta_kl,
                     kl_balance_alpha=cfg.training.kl_balance_alpha,
                     free_bits=cfg.training.free_bits,
+                    spatial_delta_weighting=cfg.training.get("spatial_delta_weighting", False),
                 )
                 loss = losses["loss"]
 

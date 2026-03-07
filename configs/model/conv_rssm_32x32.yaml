@@ -1,0 +1,8 @@
+name: conv_rssm
+ae_latent_channels: 8
+spatial_size: 32
+h_channels: 64
+z_channels: 16
+action_channels: 16
+action_dim: 3
+min_std: 0.1
