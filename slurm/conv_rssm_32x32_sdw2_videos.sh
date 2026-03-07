@@ -15,7 +15,7 @@ cd ~/projects/biosense_ml
 source .venv/bin/activate
 
 RSSM_CKPT="outputs/conv_rssm_32x32_sdw2/checkpoints/checkpoint_best.pt"
-AE_CKPT="outputs/bottleneck_32x32x8/checkpoints/checkpoint_epoch0050.pt"
+AE_CKPT="outputs/bottleneck_32x32x8/checkpoints/checkpoint_best.pt"
 LATENT_H5="data/rssm/latents_32x32x8.h5"
 OUTPUT_DIR="outputs/conv_rssm_32x32_sdw2/videos"
 mkdir -p "$OUTPUT_DIR"
