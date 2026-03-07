@@ -124,6 +124,7 @@ def compute_conv_rssm_loss(
     kl_balance_alpha: float = 0.8,
     free_bits: float = 0.1,
     spatial_delta_weighting: bool = False,
+    sdw_alpha: float = 1.0,
 ) -> dict[str, torch.Tensor]:
     """Compute ConvRSSM loss with spatial KL and per-channel free bits.
 
@@ -156,11 +157,11 @@ def compute_conv_rssm_loss(
     if spatial_delta_weighting:
         # Spatial weight (within frame): which cells changed most
         cell_delta_norm = obs_target.norm(dim=2, keepdim=True)  # (B, T, 1, H, W)
-        spatial_weight = cell_delta_norm / (cell_delta_norm.mean(dim=[3, 4], keepdim=True) + 1e-8)
+        spatial_weight = (cell_delta_norm / (cell_delta_norm.mean(dim=[3, 4], keepdim=True) + 1e-8)) ** sdw_alpha
 
         # Temporal weight (across frames): which frames had the most total movement
         frame_energy = obs_target.pow(2).sum(dim=[2, 3, 4])  # (B, T)
-        frame_weight = frame_energy / (frame_energy.mean(dim=1, keepdim=True) + 1e-8)
+        frame_weight = (frame_energy / (frame_energy.mean(dim=1, keepdim=True) + 1e-8)) ** sdw_alpha
         frame_weight = frame_weight.view(B, T, 1, 1, 1)
 
         # Combined weight
@@ -253,6 +254,7 @@ def run_epoch(
                     kl_balance_alpha=cfg.training.kl_balance_alpha,
                     free_bits=cfg.training.free_bits,
                     spatial_delta_weighting=cfg.training.get("spatial_delta_weighting", False),
+                    sdw_alpha=cfg.training.get("sdw_alpha", 1.0),
                 )
                 loss = losses["loss"]
 
