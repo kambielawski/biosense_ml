@@ -154,9 +154,17 @@ def compute_conv_rssm_loss(
     recon_sq = (obs_pred - obs_target) ** 2  # (B, T, C_ae, H, W)
 
     if spatial_delta_weighting:
-        # Weight each spatial cell by the L2 norm of the actual delta
+        # Spatial weight (within frame): which cells changed most
         cell_delta_norm = obs_target.norm(dim=2, keepdim=True)  # (B, T, 1, H, W)
-        weight = cell_delta_norm / (cell_delta_norm.mean(dim=[3, 4], keepdim=True) + 1e-8)
+        spatial_weight = cell_delta_norm / (cell_delta_norm.mean(dim=[3, 4], keepdim=True) + 1e-8)
+
+        # Temporal weight (across frames): which frames had the most total movement
+        frame_energy = obs_target.pow(2).sum(dim=[2, 3, 4])  # (B, T)
+        frame_weight = frame_energy / (frame_energy.mean(dim=1, keepdim=True) + 1e-8)
+        frame_weight = frame_weight.view(B, T, 1, 1, 1)
+
+        # Combined weight
+        weight = spatial_weight * frame_weight
         recon_sq = weight * recon_sq
 
     recon_loss = (recon_sq * mask_5d).sum() / mask.sum()
