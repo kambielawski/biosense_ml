@@ -90,6 +90,7 @@ class TrajectoryMLP(nn.Module):
         for t in range(H):
             # Predict next position
             pred_xy = self.forward(window)  # (B, 2)
+            pred_xy = torch.clamp(pred_xy, 0.0, 1.0)
             predictions.append(pred_xy)
 
             # Build next feature vector from prediction

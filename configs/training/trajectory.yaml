@@ -18,6 +18,22 @@ loss:
 gradient_clip: 1.0
 mixed_precision: false  # small model, not needed
 
+# Scheduled sampling — linearly ramp from ss_start to ss_end over ss_warmup_epochs.
+# At each training step, with probability `sampling_rate`, the model's own prediction
+# replaces ground-truth input. Set scheduled_sampling=false to disable (pure teacher forcing).
+scheduled_sampling: false
+ss_start: 0.0           # initial sampling rate (0 = pure teacher forcing)
+ss_end: 0.5             # final sampling rate
+ss_warmup_epochs: 50    # epochs to linearly ramp from ss_start to ss_end
+
+# Multi-step rollout loss — unroll model for K steps during training and compute
+# loss over the full rollout. Curriculum: K starts at 1 and increases to max_rollout_steps.
+# Set multistep_rollout=false to disable (single-step loss).
+multistep_rollout: false
+max_rollout_steps: 8    # maximum rollout length K
+rollout_warmup_epochs: 40  # epochs for K to reach max_rollout_steps
+rollout_detach: false   # if true, detach gradients between rollout steps
+
 # Data
 batch_size: 64
 num_workers: 4

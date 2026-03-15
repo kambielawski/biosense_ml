@@ -1,0 +1,49 @@
+# Training config with scheduled sampling + multi-step rollout enabled.
+# Use this for improved rollout prediction (vs pure teacher forcing in trajectory.yaml).
+epochs: 100
+
+optimizer:
+  name: adamw
+  lr: 1e-3
+  weight_decay: 1e-4
+  betas: [0.9, 0.999]
+
+scheduler:
+  name: cosine
+  warmup_epochs: 5
+  min_lr: 1e-6
+
+loss:
+  name: mse
+
+gradient_clip: 1.0
+mixed_precision: false
+
+# Scheduled sampling — ramp from 0% to 50% over first 50 epochs
+scheduled_sampling: true
+ss_start: 0.0
+ss_end: 0.5
+ss_warmup_epochs: 50
+
+# Multi-step rollout — curriculum from K=1 to K=8 over first 40 epochs
+multistep_rollout: true
+max_rollout_steps: 8
+rollout_warmup_epochs: 40
+rollout_detach: false
+
+# Data
+batch_size: 64
+num_workers: 4
+seq_len: 50
+burn_in_frac: 0.2
+
+# Checkpointing
+checkpoint_every: 10
+keep_top_k: 3
+
+# Logging
+log_every: 10
+val_every: 1
+
+# Eval rollout time horizons (seconds)
+eval_time_horizons: [10, 30, 60, 120, 300]

@@ -50,6 +50,32 @@ def set_seed(seed: int = 42) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
+def get_sampling_rate(epoch: int, cfg: DictConfig) -> float:
+    """Compute scheduled sampling rate for the current epoch."""
+    if not cfg.training.get("scheduled_sampling", False):
+        return 0.0
+    ss_start = cfg.training.get("ss_start", 0.0)
+    ss_end = cfg.training.get("ss_end", 0.5)
+    ss_warmup = cfg.training.get("ss_warmup_epochs", 50)
+    if ss_warmup <= 0:
+        return ss_end
+    progress = min(epoch / ss_warmup, 1.0)
+    return ss_start + (ss_end - ss_start) * progress
+
+
+def get_rollout_steps(epoch: int, cfg: DictConfig) -> int:
+    """Compute multi-step rollout length K for the current epoch."""
+    if not cfg.training.get("multistep_rollout", False):
+        return 1
+    max_k = cfg.training.get("max_rollout_steps", 8)
+    warmup = cfg.training.get("rollout_warmup_epochs", 40)
+    if warmup <= 0:
+        return max_k
+    # Start at K=1, linearly increase to max_k over warmup epochs
+    progress = min(epoch / warmup, 1.0)
+    return max(1, int(1 + (max_k - 1) * progress))
+
+
 def train_one_epoch(
     model: nn.Module,
     loader: DataLoader,
@@ -58,39 +84,65 @@ def train_one_epoch(
     model_type: str,
     context_len: int,
     grad_clip: float = 1.0,
+    sampling_rate: float = 0.0,
+    rollout_steps: int = 1,
+    rollout_detach: bool = False,
 ) -> dict[str, float]:
-    """Train for one epoch with next-step prediction loss."""
+    """Train for one epoch with optional scheduled sampling and multi-step rollout.
+
+    Args:
+        model: Trajectory model (GRU or MLP).
+        loader: Training data loader.
+        optimizer: Optimizer.
+        device: Torch device.
+        model_type: "gru" or "mlp".
+        context_len: Context window size for MLP (K).
+        grad_clip: Max gradient norm.
+        sampling_rate: Probability of using model's own prediction as input (0=teacher forcing).
+        rollout_steps: Number of autoregressive steps to unroll during training.
+        rollout_detach: If True, detach gradients between rollout steps.
+    """
     model.train()
     total_loss = 0.0
     n_batches = 0
+    use_rollout = sampling_rate > 0.0 or rollout_steps > 1
 
     for batch in loader:
         features = batch["features"].to(device)  # (B, T, 10)
         targets = batch["targets"].to(device)  # (B, T, 2)
+        B, T, D = features.shape
 
         optimizer.zero_grad()
 
-        if model_type == "gru":
-            pred_xy, _ = model(features)  # (B, T, 2)
-        else:
-            # MLP: slide context_len window over sequence
-            B, T, D = features.shape
-            if T <= context_len:
-                continue
-            # Gather all windows
-            windows = []
-            window_targets = []
-            for t in range(context_len, T):
-                windows.append(features[:, t - context_len : t])  # (B, K, 10)
-                window_targets.append(targets[:, t - 1])  # (B, 2) — target is t-th pos
-            windows = torch.stack(windows, dim=1)  # (B, T-K, K, 10)
-            window_targets = torch.stack(window_targets, dim=1)  # (B, T-K, 2)
-            Bw, Tw, K, D = windows.shape
-            pred_xy = model(windows.reshape(Bw * Tw, K, D))  # (B*(T-K), 2)
-            pred_xy = pred_xy.reshape(Bw, Tw, 2)
-            targets = window_targets
+        if not use_rollout:
+            # Original one-step teacher forcing (unchanged for backward compatibility)
+            if model_type == "gru":
+                pred_xy, _ = model(features)  # (B, T, 2)
+            else:
+                if T <= context_len:
+                    continue
+                windows = []
+                window_targets = []
+                for t in range(context_len, T):
+                    windows.append(features[:, t - context_len : t])
+                    window_targets.append(targets[:, t - 1])
+                windows = torch.stack(windows, dim=1)
+                window_targets = torch.stack(window_targets, dim=1)
+                Bw, Tw, K, Dw = windows.shape
+                pred_xy = model(windows.reshape(Bw * Tw, K, Dw))
+                pred_xy = pred_xy.reshape(Bw, Tw, 2)
+                targets = window_targets
 
-        loss = nn.functional.mse_loss(pred_xy, targets)
+            loss = nn.functional.mse_loss(pred_xy, targets)
+        else:
+            # Multi-step rollout with scheduled sampling
+            loss = _rollout_loss(
+                model, features, targets, model_type, context_len,
+                sampling_rate, rollout_steps, rollout_detach,
+            )
+            if loss is None:
+                continue
+
         loss.backward()
 
         if grad_clip > 0:
@@ -101,6 +153,130 @@ def train_one_epoch(
         n_batches += 1
 
     return {"train_loss": total_loss / max(n_batches, 1)}
+
+
+def _rollout_loss(
+    model: nn.Module,
+    features: torch.Tensor,
+    targets: torch.Tensor,
+    model_type: str,
+    context_len: int,
+    sampling_rate: float,
+    rollout_steps: int,
+    rollout_detach: bool,
+) -> torch.Tensor | None:
+    """Compute loss with multi-step rollout and scheduled sampling.
+
+    Unrolls the model for `rollout_steps` steps, optionally mixing in
+    the model's own predictions at each step (scheduled sampling).
+
+    Args:
+        model: Trajectory model.
+        features: (B, T, 10) full sequence features.
+        targets: (B, T, 2) target positions.
+        model_type: "gru" or "mlp".
+        context_len: Context window for MLP.
+        sampling_rate: Probability of using model prediction instead of GT.
+        rollout_steps: Number of steps to unroll.
+        rollout_detach: Detach between rollout steps if True.
+
+    Returns:
+        Scalar loss tensor, or None if the sequence is too short.
+    """
+    B, T, D = features.shape
+    # Need at least context + rollout_steps + 1 timesteps
+    min_ctx = context_len if model_type == "mlp" else 2
+    if T < min_ctx + rollout_steps + 1:
+        return None
+
+    # Pick a random start point for the rollout within the sequence
+    # Context ends at `ctx_end`, rollout runs from ctx_end to ctx_end + rollout_steps
+    max_start = T - rollout_steps - 1
+    ctx_end = random.randint(min_ctx, max(min_ctx, max_start))
+    actual_steps = min(rollout_steps, T - ctx_end - 1)
+    if actual_steps < 1:
+        return None
+
+    all_preds = []
+    all_targets = []
+
+    if model_type == "gru":
+        # Burn in: process context to build hidden state
+        context = features[:, :ctx_end]  # (B, ctx_end, 10)
+        _, hidden = model(context)  # hidden: (num_layers, B, hidden_dim)
+
+        # Previous positions for constructing features
+        prev_prev_xy = features[:, max(0, ctx_end - 2), :2]  # (B, 2)
+        prev_xy = features[:, ctx_end - 1, :2]  # (B, 2) ground truth
+
+        for k in range(actual_steps):
+            t = ctx_end + k
+
+            # Decide: use GT or model's prediction for input
+            if k == 0 or random.random() >= sampling_rate:
+                # Teacher forcing: use ground-truth features
+                feat_k = features[:, t]  # (B, 10)
+            else:
+                # Scheduled sampling: construct features from model's prediction
+                dt_k = features[:, t, 4:5]  # (B, 1) — always GT
+                actions_k = features[:, t, 5:10]  # (B, 5) — always GT
+                safe_dt = dt_k.clamp(min=1e-6)
+                vel_k = (prev_xy - prev_prev_xy) / safe_dt  # (B, 2)
+                feat_k = torch.cat([prev_xy, vel_k, dt_k, actions_k], dim=-1)  # (B, 10)
+
+            # Forward step
+            pred_xy, hidden = model.step(feat_k, hidden)
+            pred_xy = torch.clamp(pred_xy, 0.0, 1.0)
+
+            if rollout_detach:
+                hidden = hidden.detach()
+
+            all_preds.append(pred_xy)
+            all_targets.append(targets[:, t])  # (B, 2)
+
+            # Track positions for next step's velocity computation
+            prev_prev_xy = prev_xy
+            if random.random() < sampling_rate:
+                prev_xy = pred_xy  # use prediction
+            else:
+                prev_xy = targets[:, t]  # use GT position
+
+    else:  # MLP
+        # Initialize sliding window from ground truth
+        window = features[:, ctx_end - context_len : ctx_end].clone()  # (B, K, 10)
+
+        for k in range(actual_steps):
+            t = ctx_end + k
+
+            # Predict from current window
+            pred_xy = model(window)  # (B, 2)
+            pred_xy = torch.clamp(pred_xy, 0.0, 1.0)
+
+            all_preds.append(pred_xy)
+            all_targets.append(targets[:, t])  # (B, 2)
+
+            # Build next feature to slide into window
+            if random.random() < sampling_rate and k > 0:
+                # Use model's prediction
+                prev_xy_for_vel = window[:, -1, :2]
+                dt_k = features[:, t, 4:5]  # always GT
+                actions_k = features[:, t, 5:10]  # always GT
+                safe_dt = dt_k.clamp(min=1e-6)
+                vel_k = (pred_xy - prev_xy_for_vel) / safe_dt
+                next_feat = torch.cat([pred_xy, vel_k, dt_k, actions_k], dim=-1)
+            else:
+                # Teacher forcing: use ground-truth feature at this timestep
+                next_feat = features[:, t]
+
+            if rollout_detach:
+                next_feat = next_feat.detach()
+
+            # Slide window
+            window = torch.cat([window[:, 1:], next_feat.unsqueeze(1)], dim=1)
+
+    preds = torch.stack(all_preds, dim=1)  # (B, K, 2)
+    tgts = torch.stack(all_targets, dim=1)  # (B, K, 2)
+    return nn.functional.mse_loss(preds, tgts)
 
 
 @torch.no_grad()
@@ -216,14 +392,34 @@ def main(cfg: DictConfig) -> None:
     best_val_loss = float("inf")
     epochs = cfg.training.epochs
 
+    rollout_detach = cfg.training.get("rollout_detach", False)
+    use_ss = cfg.training.get("scheduled_sampling", False)
+    use_ms = cfg.training.get("multistep_rollout", False)
+    if use_ss or use_ms:
+        logger.info(
+            "Rollout training enabled: scheduled_sampling=%s (%.1f->%.1f over %d ep), "
+            "multistep=%s (max_K=%d over %d ep), detach=%s",
+            use_ss, cfg.training.get("ss_start", 0.0), cfg.training.get("ss_end", 0.5),
+            cfg.training.get("ss_warmup_epochs", 50),
+            use_ms, cfg.training.get("max_rollout_steps", 8),
+            cfg.training.get("rollout_warmup_epochs", 40),
+            rollout_detach,
+        )
+
     for epoch in range(1, epochs + 1):
         t0 = time.monotonic()
+
+        sampling_rate = get_sampling_rate(epoch, cfg)
+        rollout_steps = get_rollout_steps(epoch, cfg)
 
         train_metrics = train_one_epoch(
             model, train_loader, optimizer, device,
             model_type=model_type.replace("trajectory_", ""),
             context_len=context_len,
             grad_clip=cfg.training.gradient_clip,
+            sampling_rate=sampling_rate,
+            rollout_steps=rollout_steps,
+            rollout_detach=rollout_detach,
         )
         val_metrics = validate(
             model, val_loader, device,
@@ -241,14 +437,16 @@ def main(cfg: DictConfig) -> None:
             "lr": lr,
             "epoch": epoch,
             "epoch_time": elapsed,
+            "sampling_rate": sampling_rate,
+            "rollout_steps": rollout_steps,
         }
         if wandb.run:
             wandb.log(log_dict, step=epoch)
 
         logger.info(
-            "Epoch %3d/%d | train_loss=%.6f | val_loss=%.6f | lr=%.2e | %.1fs",
+            "Epoch %3d/%d | train=%.6f | val=%.6f | lr=%.2e | sr=%.2f | K=%d | %.1fs",
             epoch, epochs, train_metrics["train_loss"],
-            val_metrics["val_loss"], lr, elapsed,
+            val_metrics["val_loss"], lr, sampling_rate, rollout_steps, elapsed,
         )
 
         # Checkpointing

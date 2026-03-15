@@ -155,6 +155,7 @@ class TrajectoryGRU(nn.Module):
 
             # Single-step prediction
             pred_xy, hidden = self.step(feat, hidden)
+            pred_xy = torch.clamp(pred_xy, 0.0, 1.0)
             predictions.append(pred_xy)
 
             prev_prev_xy = prev_xy
