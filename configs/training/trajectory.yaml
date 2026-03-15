@@ -1,0 +1,36 @@
+# Training config for trajectory prediction models (MLP baseline, GRU)
+epochs: 100
+
+optimizer:
+  name: adamw
+  lr: 1e-3
+  weight_decay: 1e-4
+  betas: [0.9, 0.999]
+
+scheduler:
+  name: cosine
+  warmup_epochs: 5
+  min_lr: 1e-6
+
+loss:
+  name: mse  # L2 loss on predicted (x, y) positions
+
+gradient_clip: 1.0
+mixed_precision: false  # small model, not needed
+
+# Data
+batch_size: 64
+num_workers: 4
+seq_len: 50          # training sequence length (timesteps)
+burn_in_frac: 0.2    # fraction of sequence for burn-in during eval
+
+# Checkpointing
+checkpoint_every: 10
+keep_top_k: 3
+
+# Logging
+log_every: 10        # steps
+val_every: 1         # epochs
+
+# Eval rollout time horizons (seconds)
+eval_time_horizons: [10, 30, 60, 120, 300]
