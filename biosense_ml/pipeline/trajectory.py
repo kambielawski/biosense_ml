@@ -97,10 +97,10 @@ def apply_circular_mask(
     return cv2.bitwise_and(binary_image, mask)
 
 
-def get_largest_centroid(binary_image: np.ndarray) -> tuple[int, int] | None:
+def get_largest_centroid(binary_image: np.ndarray) -> tuple[float, float] | None:
     """Find the centroid of the largest contour in a binary image.
 
-    Returns (x, y) in pixel coords, or None if no contours found.
+    Returns (x, y) as sub-pixel float coords, or None if no contours found.
     """
     contours, _ = cv2.findContours(
         binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -112,8 +112,8 @@ def get_largest_centroid(binary_image: np.ndarray) -> tuple[int, int] | None:
     M = cv2.moments(best_contour)
     if M["m00"] == 0:
         return None
-    cx = int(M["m10"] / M["m00"])
-    cy = int(M["m01"] / M["m00"])
+    cx = M["m10"] / M["m00"]
+    cy = M["m01"] / M["m00"]
     return (cx, cy)
 
 
@@ -125,10 +125,10 @@ def extract_centroid(
     C: int = DEFAULT_C,
     dimension: int = DEFAULT_DIMENSION,
     mask_radius: int = DEFAULT_MASK_RADIUS,
-) -> tuple[int, int] | None:
+) -> tuple[float, float] | None:
     """Extract organoid centroid from a single raw image.
 
-    Returns (x, y) in pixel coords within the downsampled image, or None.
+    Returns (x, y) as sub-pixel float coords within the downsampled image, or None.
     """
     frame = crop_and_downsample(str(image_path), crop_left, crop_right, dimension)
     binary = mask_frame_adaptive(frame, block_size, C)
@@ -176,7 +176,7 @@ def process_single_batch(
     commands = load_commands(batch_dir)
 
     # Extract centroid for every frame
-    raw_centroids: list[tuple[int, int] | None] = []
+    raw_centroids: list[tuple[float, float] | None] = []
     timestamps: list[datetime] = []
     frame_indices: list[int] = []
 

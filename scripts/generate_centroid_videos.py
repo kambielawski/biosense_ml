@@ -81,7 +81,7 @@ def render_centroid_video(
         return [], []
 
     # Extract centroids and timestamps
-    raw_centroids: list[tuple[int, int] | None] = []
+    raw_centroids: list[tuple[float, float] | None] = []
     timestamps = []
 
     for img_path in image_files:
@@ -118,14 +118,16 @@ def render_centroid_video(
         for j in range(start_trail, i + 1):
             c = raw_centroids[j]
             if c is not None:
+                # Cast to int for drawing (sub-pixel centroids)
+                c_int = (int(round(c[0])), int(round(c[1])))
                 # Current frame: larger green dot; trail: smaller blue dots
                 if j == i:
-                    cv2.circle(frame, c, 6, (0, 255, 0), -1)
-                    cv2.circle(frame, c, 6, (0, 200, 0), 1)
+                    cv2.circle(frame, c_int, 6, (0, 255, 0), -1)
+                    cv2.circle(frame, c_int, 6, (0, 200, 0), 1)
                 else:
                     alpha = 0.3 + 0.7 * (j - start_trail) / max(1, i - start_trail)
                     color = (int(255 * alpha), int(100 * alpha), 0)
-                    cv2.circle(frame, c, 2, color, -1)
+                    cv2.circle(frame, c_int, 2, color, -1)
             elif j == i:
                 # Missing detection — red X
                 cx, cy = dimension // 2, dimension // 2
@@ -147,7 +149,7 @@ def render_centroid_video(
 
 def generate_trajectory_plots(
     batch_id: int,
-    raw_centroids: list[tuple[int, int] | None],
+    raw_centroids: list[tuple[float, float] | None],
     timestamps: list,
     output_path: Path,
     dimension: int = DEFAULT_DIMENSION,
