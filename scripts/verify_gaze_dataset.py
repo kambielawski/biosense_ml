@@ -35,6 +35,7 @@ import numpy as np
 
 from biosense_ml.pipeline.preprocessing import discover_batch_dirs, discover_batch_files
 from biosense_ml.pipeline.trajectory import crop_and_downsample
+from biosense_ml.pipeline.gaze import process_single_batch_gaze
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -191,6 +192,55 @@ def verify_batch(grp, batch_key: str, archive_dir: Path, output_dir: Path,
         logger.info("  Saved %d overlay images to %s", len(sample_indices), batch_out)
 
 
+def verify_batch_live(batch_id: int, archive_dir: Path, output_dir: Path,
+                      fps: int = 10):
+    """Run gaze detection live on raw archive and render video directly."""
+    batch_dir = archive_dir / f"batch-{batch_id:06d}"
+    if not batch_dir.exists():
+        logger.error("  Archive dir not found: %s", batch_dir)
+        return
+
+    batch_key = f"batch_{batch_id:06d}"
+    batch_label = f"batch {batch_id:06d}"
+    logger.info("--- %s (live from archive) ---", batch_key)
+
+    # Run gaze detection from scratch
+    result = process_single_batch_gaze(batch_id, batch_dir)
+    if result is None:
+        logger.error("  No usable frames in batch %06d", batch_id)
+        return
+
+    crops = result["crops"]
+    centers = result["centers"]
+    has_motion = result["has_motion"]
+    T = len(crops)
+    n_motion = int(has_motion.sum())
+    logger.info("  Frames: %d, with motion: %d (%.1f%%)", T, n_motion,
+                100.0 * n_motion / T if T > 0 else 0)
+
+    # Load the image file list for rendering
+    image_files = discover_batch_files(batch_dir)
+
+    batch_out = output_dir / batch_key
+    batch_out.mkdir(parents=True, exist_ok=True)
+    video_path = batch_out / f"{batch_key}_gaze_overlay.mp4"
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(str(video_path), fourcc, fps, (512, 512))
+
+    for idx in range(min(T, len(image_files))):
+        frame = crop_and_downsample(image_files[idx])
+        overlay = render_overlay_frame(
+            frame, crops[idx], centers[idx, 0], centers[idx, 1],
+            bool(has_motion[idx]), idx, batch_label,
+        )
+        writer.write(overlay)
+        if (idx + 1) % 200 == 0:
+            logger.info("  Video: rendered %d/%d frames", idx + 1, T)
+
+    writer.release()
+    logger.info("  Saved video (%d frames, %d fps): %s", min(T, len(image_files)), fps, video_path)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Verify gaze dataset acceptance criteria")
     parser.add_argument("--h5", default="data/gaze/gaze_dataset.h5")
@@ -203,11 +253,26 @@ def main():
                         help="Generate full-sequence MP4 videos instead of sampled images")
     parser.add_argument("--fps", type=int, default=10,
                         help="Video frame rate (default 10)")
+    parser.add_argument("--live", action="store_true",
+                        help="Run gaze detection live from raw archive (skip H5)")
+    parser.add_argument("--batch_ids", type=int, nargs="*", default=None,
+                        help="Specific batch IDs to verify (used with --live)")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     archive_dir = Path(args.archive_dir)
+
+    # --- Live mode: run gaze detection from raw archive, no H5 needed ---
+    if args.live:
+        batch_ids = args.batch_ids or [121, 68, 257, 130]
+        logger.info("=== Live gaze verification for batches: %s ===", batch_ids)
+        for bid in batch_ids:
+            verify_batch_live(bid, archive_dir, output_dir, fps=args.fps)
+        logger.info("")
+        logger.info("=== Verification complete ===")
+        logger.info("Videos saved to: %s", output_dir)
+        return
 
     with h5py.File(args.h5, "r") as f:
         logger.info("=== Gaze Dataset Verification ===")
