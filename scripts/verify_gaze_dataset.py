@@ -7,13 +7,22 @@ Produces visual verification outputs:
 2. Report has_motion statistics per batch.
 3. Check that deltas cumsum ≈ centers.
 4. Check crop value ranges (ImageNet-normalized).
+5. (--video mode) Full-sequence MP4 videos with bounding box overlay.
 
 Usage:
+    # Static images only:
     python scripts/verify_gaze_dataset.py \
         --h5 data/gaze/gaze_dataset.h5 \
         --archive_dir /users/k/k/kkannans/scratch/biosense_training_data \
         --output_dir outputs/gaze_verification \
         --num_batches 3
+
+    # Full videos:
+    python scripts/verify_gaze_dataset.py \
+        --h5 data/gaze/gaze_dataset.h5 \
+        --archive_dir /users/k/k/kkannans/scratch/biosense_training_data \
+        --output_dir outputs/gaze_verification \
+        --num_batches 3 --video --fps 10
 """
 
 import argparse
@@ -55,8 +64,40 @@ def draw_crop_box(frame_bgr: np.ndarray, cy: float, cx: float, half: int = 16,
     return out
 
 
-def verify_batch(grp, batch_key: str, archive_dir: Path, output_dir: Path):
-    """Verify a single batch and save overlay images."""
+def render_overlay_frame(
+    frame_bgr: np.ndarray,
+    crop_chw: np.ndarray,
+    cy: float,
+    cx: float,
+    has_motion_flag: bool,
+    frame_idx: int,
+    batch_label: str,
+) -> np.ndarray:
+    """Render a single annotated overlay frame (512x512 BGR)."""
+    motion_str = "motion" if has_motion_flag else "static"
+    color = (0, 255, 0) if has_motion_flag else (0, 128, 255)  # green=motion, orange=static
+
+    overlay = draw_crop_box(frame_bgr, cy, cx, color=color)
+
+    # Text: frame info top-left
+    cv2.putText(overlay, f"{batch_label}  f={frame_idx}/{motion_str}  ({cy:.0f},{cx:.0f})",
+                (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
+
+    # Denormalize the stored crop and resize for preview in top-right
+    crop_rgb = denorm_crop(crop_chw)
+    crop_bgr = cv2.cvtColor(crop_rgb, cv2.COLOR_RGB2BGR)
+    crop_big = cv2.resize(crop_bgr, (128, 128), interpolation=cv2.INTER_NEAREST)
+
+    overlay[5:133, 379:507] = crop_big
+    cv2.rectangle(overlay, (379, 5), (507, 133), (255, 255, 0), 1)
+    cv2.putText(overlay, "crop", (385, 145), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
+
+    return overlay
+
+
+def verify_batch(grp, batch_key: str, archive_dir: Path, output_dir: Path,
+                 video: bool = False, fps: int = 10):
+    """Verify a single batch and save overlay images and/or video."""
     batch_id = grp.attrs["batch_id"]
     split = grp.attrs.get("split", "unknown")
     crops = grp["crops"][:]        # (T, 3, 32, 32)
@@ -92,7 +133,6 @@ def verify_batch(grp, batch_key: str, archive_dir: Path, output_dir: Path):
         logger.info("  First frame has_motion=False ✓")
 
     # --- Check 4: visual overlay ---
-    # Try to load original frames from archive
     batch_dir = archive_dir / f"batch-{batch_id:06d}"
     if not batch_dir.exists():
         logger.warning("  Archive dir not found: %s — skipping visual overlay", batch_dir)
@@ -102,46 +142,53 @@ def verify_batch(grp, batch_key: str, archive_dir: Path, output_dir: Path):
     if len(image_files) < T:
         logger.warning("  Archive has %d images but H5 has %d frames", len(image_files), T)
 
-    # Pick frames to visualize: first with motion, then evenly spaced
-    motion_indices = np.where(has_motion)[0]
-    if len(motion_indices) == 0:
-        sample_indices = np.linspace(0, T - 1, min(8, T), dtype=int)
-    else:
-        # First motion frame, then evenly spaced through motion frames
-        n_samples = min(8, len(motion_indices))
-        sample_indices = motion_indices[np.linspace(0, len(motion_indices) - 1, n_samples, dtype=int)]
-
     batch_out = output_dir / batch_key
     batch_out.mkdir(parents=True, exist_ok=True)
+    batch_label = f"batch {batch_id:06d}"
 
-    for idx in sample_indices:
-        if idx >= len(image_files):
-            continue
+    if video:
+        # --- Full-sequence video ---
+        video_path = batch_out / f"{batch_key}_gaze_overlay.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(video_path), fourcc, fps, (512, 512))
 
-        # Load and resize original frame
-        frame = crop_and_downsample(image_files[idx])  # 512x512 BGR
-        cy, cx = centers[idx]
-        motion_str = "motion" if has_motion[idx] else "static"
+        for idx in range(min(T, len(image_files))):
+            frame = crop_and_downsample(image_files[idx])
+            overlay = render_overlay_frame(
+                frame, crops[idx], centers[idx, 0], centers[idx, 1],
+                bool(has_motion[idx]), idx, batch_label,
+            )
+            writer.write(overlay)
 
-        # Draw bounding box overlay
-        overlay = draw_crop_box(frame, cy, cx)
-        cv2.putText(overlay, f"f={idx} {motion_str} ({cy:.0f},{cx:.0f})",
-                    (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+            if (idx + 1) % 200 == 0:
+                logger.info("  Video: rendered %d/%d frames", idx + 1, T)
 
-        # Denormalize the stored crop and resize for side-by-side
-        crop_rgb = denorm_crop(crops[idx])
-        crop_bgr = cv2.cvtColor(crop_rgb, cv2.COLOR_RGB2BGR)
-        crop_big = cv2.resize(crop_bgr, (128, 128), interpolation=cv2.INTER_NEAREST)
+        writer.release()
+        logger.info("  Saved video (%d frames, %d fps): %s", min(T, len(image_files)), fps, video_path)
 
-        # Paste crop preview in corner of overlay
-        overlay[5:133, 379:507] = crop_big
-        cv2.rectangle(overlay, (379, 5), (507, 133), (255, 255, 0), 1)
-        cv2.putText(overlay, "crop", (385, 145), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
+    else:
+        # --- Sampled overlay images ---
+        motion_indices = np.where(has_motion)[0]
+        if len(motion_indices) == 0:
+            sample_indices = np.linspace(0, T - 1, min(8, T), dtype=int)
+        else:
+            n_samples = min(8, len(motion_indices))
+            sample_indices = motion_indices[np.linspace(0, len(motion_indices) - 1, n_samples, dtype=int)]
 
-        out_path = batch_out / f"frame_{idx:04d}_{motion_str}.png"
-        cv2.imwrite(str(out_path), overlay)
+        for idx in sample_indices:
+            if idx >= len(image_files):
+                continue
 
-    logger.info("  Saved %d overlay images to %s", len(sample_indices), batch_out)
+            frame = crop_and_downsample(image_files[idx])
+            motion_str = "motion" if has_motion[idx] else "static"
+            overlay = render_overlay_frame(
+                frame, crops[idx], centers[idx, 0], centers[idx, 1],
+                bool(has_motion[idx]), idx, batch_label,
+            )
+            out_path = batch_out / f"frame_{idx:04d}_{motion_str}.png"
+            cv2.imwrite(str(out_path), overlay)
+
+        logger.info("  Saved %d overlay images to %s", len(sample_indices), batch_out)
 
 
 def main():
@@ -152,6 +199,10 @@ def main():
     parser.add_argument("--num_batches", type=int, default=3,
                         help="Number of random batches to visually verify")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--video", action="store_true",
+                        help="Generate full-sequence MP4 videos instead of sampled images")
+    parser.add_argument("--fps", type=int, default=10,
+                        help="Video frame rate (default 10)")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -209,9 +260,11 @@ def main():
         elif low_motion:
             chosen_keys.append(low_motion[0][0])
 
-        logger.info("=== Visual verification for %d batches ===", len(chosen_keys))
+        mode_str = "video" if args.video else "images"
+        logger.info("=== Visual verification (%s) for %d batches ===", mode_str, len(chosen_keys))
         for bk in chosen_keys:
-            verify_batch(f[bk], bk, archive_dir, output_dir)
+            verify_batch(f[bk], bk, archive_dir, output_dir,
+                         video=args.video, fps=args.fps)
 
     logger.info("")
     logger.info("=== Verification complete ===")
