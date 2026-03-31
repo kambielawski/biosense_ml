@@ -1,0 +1,13 @@
+# Gaze-Based Organoid Video Prediction — Progress
+
+## Step 1: Crop Extraction Pipeline [DONE]
+- Created `biosense_ml/pipeline/gaze.py` — motion detection (frame differencing + Gaussian blur + center-of-mass), crop extraction, ImageNet normalization
+- Created `scripts/build_gaze_dataset.py` — CLI entry point with parallel batch processing, HDF5 output with per-batch groups (crops, centers, deltas, timestamps, has_motion, split)
+- Created `slurm/build_gaze_dataset.sh` — Slurm submission script (CPU, short partition, 8 workers)
+- Created `tests/test_gaze.py` — 13 tests covering motion detection, crop extraction, normalization, delta consistency
+- All 22 tests pass (13 new + 9 existing)
+- Uses same train/val/test split logic as trajectory pipeline (assign_splits, seed=42, stratified)
+
+## Step 2: Dynamics Model [TODO]
+## Step 3: Evaluation [TODO]
+## Step 4: Full-Frame Compositing [TODO]
