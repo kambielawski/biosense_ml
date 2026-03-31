@@ -78,7 +78,7 @@ def _make_h5(path: Path, n_batches: int = 3, frames_per_batch: int = 30):
             grp.create_dataset("deltas", data=deltas)
             grp.create_dataset("has_motion", data=has_motion)
             grp.create_dataset("timestamps", data=timestamps)
-            grp.create_dataset("split", data=splits[i % len(splits)])
+            grp.attrs["split"] = splits[i % len(splits)]
 
 
 @pytest.fixture

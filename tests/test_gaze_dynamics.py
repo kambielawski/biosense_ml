@@ -51,7 +51,7 @@ def _make_h5(path: Path, n_batches: int = 3, frames_per_batch: int = 20):
             grp.create_dataset("deltas", data=deltas)
             grp.create_dataset("has_motion", data=has_motion)
             grp.create_dataset("timestamps", data=timestamps)
-            grp.create_dataset("split", data=splits[i % len(splits)])
+            grp.attrs["split"] = splits[i % len(splits)]
 
 
 @pytest.fixture
@@ -181,7 +181,7 @@ class TestGazeCropDataset:
             grp.create_dataset("deltas", data=np.zeros((5, 2), dtype=np.float32))
             grp.create_dataset("has_motion", data=np.ones(5, dtype=bool))
             grp.create_dataset("timestamps", data=np.zeros(5, dtype=np.float64))
-            grp.create_dataset("split", data="train")
+            grp.attrs["split"] = "train"
         ds = GazeCropDataset(str(path), split="val", context_len=4)
         assert len(ds) == 0
 

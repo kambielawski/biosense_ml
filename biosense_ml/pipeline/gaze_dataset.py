@@ -52,7 +52,7 @@ class GazeCropDataset(Dataset):
 
             for batch_key in sorted(f.keys()):
                 grp = f[batch_key]
-                batch_split = grp["split"][()].decode("utf-8").strip()
+                batch_split = grp.attrs.get("split", "")
                 if batch_split != split:
                     continue
 
@@ -116,7 +116,7 @@ class GazeSequenceDataset(Dataset):
         with h5py.File(h5_path, "r") as f:
             for batch_key in sorted(f.keys()):
                 grp = f[batch_key]
-                batch_split = grp["split"][()].decode("utf-8").strip()
+                batch_split = grp.attrs.get("split", "")
                 if batch_split != split:
                     continue
 
