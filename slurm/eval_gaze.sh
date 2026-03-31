@@ -6,6 +6,7 @@
 #SBATCH --mem=16G
 #SBATCH --time=00:15:00
 #SBATCH --output=logs/eval_gaze_%j.log
+#SBATCH --exclude=h2node14,h2node15
 
 set -euo pipefail
 mkdir -p logs

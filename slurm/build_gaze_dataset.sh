@@ -6,6 +6,7 @@
 #SBATCH --time=3:00:00
 #SBATCH --output=logs/build_gaze_%j.out
 #SBATCH --error=logs/build_gaze_%j.err
+#SBATCH --exclude=h2node14,h2node15
 
 set -euo pipefail
 mkdir -p logs

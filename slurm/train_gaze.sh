@@ -7,6 +7,7 @@
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/train_gaze_%j.out
 #SBATCH --error=logs/train_gaze_%j.err
+#SBATCH --exclude=h2node14,h2node15
 
 set -euo pipefail
 mkdir -p logs
