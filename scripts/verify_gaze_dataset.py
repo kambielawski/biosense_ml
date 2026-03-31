@@ -198,8 +198,8 @@ def main():
         # Choose from high-motion batches (known organoid activity)
         rng = np.random.RandomState(args.seed)
         if len(high_motion) >= args.num_batches:
-            chosen_keys = [bk for bk, _, _, _ in rng.choice(
-                high_motion, size=args.num_batches, replace=False)]
+            indices = rng.choice(len(high_motion), size=args.num_batches, replace=False)
+            chosen_keys = [high_motion[i][0] for i in indices]
         else:
             chosen_keys = [bk for bk, _, _, _ in high_motion[:args.num_batches]]
 
