@@ -25,4 +25,9 @@
 - Created `tests/test_gaze_eval.py` — 18 tests covering metrics dataclass, rollout evaluation (shapes, short sequences, HDE horizons, velocity error, crop L1), dataset evaluation (aggregation, empty/short inputs, IQR format, divergence rate, length-weighted ADE), integration (H5 loading, checkpoint round-trip)
 - All 60 tests pass (18 new + 42 existing)
 
-## Step 4: Full-Frame Compositing [TODO]
+## Step 4: Full-Frame Compositing [DONE]
+- Created `biosense_ml/pipeline/compositing.py` — build_alpha_mask (4px cosine falloff), denormalize_crop (ImageNet→RGB uint8), composite_crop_on_frame (feathered alpha blend), load_background_frame (from raw archive), generate_rollout_video (MP4 via cv2.VideoWriter with optional GT side-by-side)
+- Created `scripts/generate_gaze_rollout.py` — CLI entry point with checkpoint loading, model rollout, archive background loading (with dark-gray fallback), side-by-side GT vs predicted videos, per-sequence metrics logging, W&B integration with video artifacts
+- Created `slurm/generate_gaze_rollout.sh` — Slurm submission script (gpu-debug partition, 15min, node exclusions)
+- Created `tests/test_compositing.py` — 24 tests covering alpha mask (shape, symmetry, edge=0, center=1, monotonic, custom size), denormalize (shape, dtype, roundtrip, clipping), compositing (blend, clamping, background preservation, feathering), video generation (file creation, side-by-side, nested dirs)
+- All 84 tests pass (24 new + 60 existing)
