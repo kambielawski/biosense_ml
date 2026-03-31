@@ -179,8 +179,10 @@ def process_single_batch_gaze(
     ts_unix = np.zeros(T, dtype=np.float64)
 
     # First frame: no previous frame, so no motion detection
-    # Use image center as default
+    # Use image center as default; gaze_locked becomes True once the first
+    # real motion is detected, after which the continuity constraint kicks in.
     last_center = (dimension / 2.0, dimension / 2.0)
+    gaze_locked = False  # first detection always accepted to find the organoid
 
     for t in range(T):
         ts_unix[t] = timestamps[t].timestamp()
@@ -196,12 +198,14 @@ def process_single_batch_gaze(
             )
             if motion_center is not None:
                 # Spatial continuity: reject if center jumped too far
-                # (likely noise — e.g. electrode bubbles, not organoid)
+                # (likely noise — e.g. electrode bubbles, not organoid).
+                # Exception: first detection is always accepted to establish
+                # where the organoid is.
                 dy = motion_center[0] - last_center[0]
                 dx = motion_center[1] - last_center[1]
                 jump_dist = (dy**2 + dx**2) ** 0.5
 
-                if jump_dist <= max_jump:
+                if not gaze_locked or jump_dist <= max_jump:
                     has_motion[t] = True
                     centers[t] = [motion_center[0], motion_center[1]]
                     deltas[t] = [
@@ -209,6 +213,7 @@ def process_single_batch_gaze(
                         centers[t, 1] - centers[t - 1, 1],
                     ]
                     last_center = (centers[t, 0], centers[t, 1])
+                    gaze_locked = True
                 else:
                     # Jump too large — treat as noise, carry forward
                     has_motion[t] = False
