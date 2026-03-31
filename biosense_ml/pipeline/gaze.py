@@ -32,6 +32,7 @@ CROP_SIZE = 32
 HALF_CROP = CROP_SIZE // 2
 MOTION_SIGMA = 2.0
 MOTION_THRESHOLD = 10.0  # pixel intensity threshold for motion detection
+MAX_CENTER_JUMP = 50.0  # max pixels a center can move between frames (in 512x512 space)
 
 # ImageNet normalization constants
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
@@ -125,6 +126,7 @@ def process_single_batch_gaze(
     crop_right: int = 850,
     sigma: float = MOTION_SIGMA,
     threshold: float = MOTION_THRESHOLD,
+    max_jump: float = MAX_CENTER_JUMP,
 ) -> dict | None:
     """Extract gaze crops and metadata for one batch.
 
@@ -193,13 +195,25 @@ def process_single_batch_gaze(
                 frames[t - 1], frames[t], sigma=sigma, threshold=threshold
             )
             if motion_center is not None:
-                has_motion[t] = True
-                centers[t] = [motion_center[0], motion_center[1]]
-                deltas[t] = [
-                    centers[t, 0] - centers[t - 1, 0],
-                    centers[t, 1] - centers[t - 1, 1],
-                ]
-                last_center = (centers[t, 0], centers[t, 1])
+                # Spatial continuity: reject if center jumped too far
+                # (likely noise — e.g. electrode bubbles, not organoid)
+                dy = motion_center[0] - last_center[0]
+                dx = motion_center[1] - last_center[1]
+                jump_dist = (dy**2 + dx**2) ** 0.5
+
+                if jump_dist <= max_jump:
+                    has_motion[t] = True
+                    centers[t] = [motion_center[0], motion_center[1]]
+                    deltas[t] = [
+                        centers[t, 0] - centers[t - 1, 0],
+                        centers[t, 1] - centers[t - 1, 1],
+                    ]
+                    last_center = (centers[t, 0], centers[t, 1])
+                else:
+                    # Jump too large — treat as noise, carry forward
+                    has_motion[t] = False
+                    centers[t] = [last_center[0], last_center[1]]
+                    deltas[t] = [0.0, 0.0]
             else:
                 has_motion[t] = False
                 # Carry forward last known center

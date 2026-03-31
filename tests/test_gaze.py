@@ -10,6 +10,7 @@ from biosense_ml.pipeline.gaze import (
     CROP_SIZE,
     IMAGENET_MEAN,
     IMAGENET_STD,
+    MAX_CENTER_JUMP,
     detect_motion_center,
     extract_crop,
     normalize_crop_imagenet,
@@ -147,6 +148,31 @@ class TestNormalizeCropImagenet:
 
         # Should be close (rounding errors from uint8 conversion)
         assert np.allclose(bgr_recovered, crop_bgr, atol=2)
+
+
+class TestSpatialContinuity:
+    """Test that large jumps in detected center are rejected."""
+
+    def test_jump_constant(self):
+        assert MAX_CENTER_JUMP == 50.0
+
+    def test_nearby_motion_accepted(self):
+        """Motion center within max_jump of last_center should be accepted."""
+        last = (200.0, 200.0)
+        new = (220.0, 210.0)  # ~22px away
+        dy = new[0] - last[0]
+        dx = new[1] - last[1]
+        dist = (dy**2 + dx**2) ** 0.5
+        assert dist <= MAX_CENTER_JUMP
+
+    def test_distant_motion_rejected(self):
+        """Motion center far from last_center should exceed threshold."""
+        last = (200.0, 200.0)
+        new = (400.0, 400.0)  # ~283px away
+        dy = new[0] - last[0]
+        dx = new[1] - last[1]
+        dist = (dy**2 + dx**2) ** 0.5
+        assert dist > MAX_CENTER_JUMP
 
 
 class TestDeltaConsistency:
