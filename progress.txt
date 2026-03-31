@@ -8,6 +8,15 @@
 - All 22 tests pass (13 new + 9 existing)
 - Uses same train/val/test split logic as trajectory pipeline (assign_splits, seed=42, stratified)
 
-## Step 2: Dynamics Model [TODO]
+## Step 2: Dynamics Model [DONE]
+- Created `biosense_ml/models/gaze_dynamics.py` — Conv Encoder (3→32→64→128) + MLP Predictor (K×128→256→130) + Conv Decoder (128→64→32→3), ~813K params at full size
+- Created `biosense_ml/pipeline/gaze_dataset.py` — GazeCropDataset (sliding windows, motion-only targets) + GazeSequenceDataset (full sequences for eval)
+- Created `configs/model/gaze_dynamics.yaml` — latent_dim=128, hidden_dim=256, context_len=10
+- Created `configs/training/gaze.yaml` — AdamW lr=1e-4, cosine schedule, L1 crop + L1 delta loss, lambda_pos=1.0
+- Created `scripts/train_gaze.py` — training script with baseline comparison (copy-last-crop, zero-delta), W&B logging, checkpointing
+- Created `slurm/train_gaze.sh` — Slurm submission script (nvgpu partition, 1 GPU, 24h)
+- Registered `gaze_dynamics` in `biosense_ml/models/__init__.py` MODEL_REGISTRY
+- Created `tests/test_gaze_dynamics.py` — 20 tests covering model shapes, gradients, param count, dataset loading, dtypes, integration, single-sample overfit
+- All 42 tests pass (20 new + 22 existing)
 ## Step 3: Evaluation [TODO]
 ## Step 4: Full-Frame Compositing [TODO]

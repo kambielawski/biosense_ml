@@ -1,0 +1,9 @@
+name: gaze_dynamics
+
+# Architecture
+latent_dim: 128     # Conv encoder output / decoder input dimension
+hidden_dim: 256     # MLP predictor hidden dimension
+context_len: 10     # K — number of past crops in context window
+
+# Regularization
+dropout: 0.0        # Start without; add if overfitting
