@@ -18,5 +18,11 @@
 - Registered `gaze_dynamics` in `biosense_ml/models/__init__.py` MODEL_REGISTRY
 - Created `tests/test_gaze_dynamics.py` — 20 tests covering model shapes, gradients, param count, dataset loading, dtypes, integration, single-sample overfit
 - All 42 tests pass (20 new + 22 existing)
-## Step 3: Evaluation [TODO]
+## Step 3: Evaluation [DONE]
+- Created `biosense_ml/evaluation/gaze_eval.py` — GazeRolloutMetrics dataclass, evaluate_rollout() (crop L1, baseline crop L1, ADE/FDE/HDE via cumulative deltas, velocity error, divergence detection), evaluate_dataset() (aggregated stats with median/mean/IQR, divergence rate, crop improvement %)
+- Created `scripts/eval_gaze.py` — CLI eval entry point with checkpoint loading, filmstrip generation (GT vs predicted crops side-by-side), trajectory overlay plots, W&B logging with eval-gaze-v1 tag
+- Created `slurm/eval_gaze.sh` — Slurm submission script (gpu-debug partition, 15min)
+- Created `tests/test_gaze_eval.py` — 18 tests covering metrics dataclass, rollout evaluation (shapes, short sequences, HDE horizons, velocity error, crop L1), dataset evaluation (aggregation, empty/short inputs, IQR format, divergence rate, length-weighted ADE), integration (H5 loading, checkpoint round-trip)
+- All 60 tests pass (18 new + 42 existing)
+
 ## Step 4: Full-Frame Compositing [TODO]
