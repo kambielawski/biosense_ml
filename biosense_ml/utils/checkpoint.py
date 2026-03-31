@@ -88,7 +88,10 @@ def manage_top_k_checkpoints(checkpoint_dir: Path, keep_top_k: int) -> None:
         keep_top_k: Number of checkpoints to retain.
     """
     checkpoint_dir = Path(checkpoint_dir)
-    checkpoints = sorted(checkpoint_dir.glob("checkpoint_*.pt"), key=lambda p: p.stat().st_mtime)
+    checkpoints = sorted(
+        [p for p in checkpoint_dir.glob("checkpoint_*.pt") if p.name != "checkpoint_best.pt"],
+        key=lambda p: p.stat().st_mtime,
+    )
 
     while len(checkpoints) > keep_top_k:
         oldest = checkpoints.pop(0)
