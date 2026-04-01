@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=eval_gaze
-#SBATCH --partition=gpu-debug
+#SBATCH --partition=goldenmaple
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=16G

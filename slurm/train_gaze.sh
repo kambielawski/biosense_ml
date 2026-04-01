@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=gaze-dyn
-#SBATCH --partition=nvgpu
+#SBATCH --partition=goldenmaple
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G

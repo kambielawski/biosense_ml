@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=build-gaze
-#SBATCH --partition=short
+#SBATCH --partition=goldenmaple
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=3:00:00
